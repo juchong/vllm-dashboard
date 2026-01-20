@@ -201,14 +201,14 @@ const ConfigSwitcher = () => {
               <button 
                 onClick={handleRestart}
                 disabled={switching}
-                className="dashboard-button text-sm"
+                className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {switching ? 'Working...' : 'Restart'}
               </button>
               <button 
                 onClick={handleStop}
                 disabled={switching}
-                className="dashboard-button-secondary text-sm text-red-600 hover:bg-red-50"
+                className="dashboard-button-danger btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Stop
               </button>
@@ -217,14 +217,14 @@ const ConfigSwitcher = () => {
             <button 
               onClick={handleStart}
               disabled={switching}
-              className="dashboard-button text-sm"
+              className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {switching ? 'Starting...' : 'Start'}
             </button>
           )}
           <button 
             onClick={() => setShowEnvEditor(true)}
-            className="dashboard-button-secondary text-sm ml-auto"
+            className="dashboard-button-secondary btn-sm ml-auto"
           >
             Environment
           </button>
@@ -237,7 +237,7 @@ const ConfigSwitcher = () => {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="alert alert-error">
           {error}
         </div>
       )}
@@ -269,14 +269,10 @@ const ConfigSwitcher = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900">{config.name}</h3>
                         {isActive && (
-                          <span className="px-2 py-0.5 bg-blue-500 text-white text-xs rounded">
-                            Active
-                          </span>
+                          <span className="badge bg-blue-500 text-white">Active</span>
                         )}
-                        <span className={`px-2 py-0.5 text-xs rounded ${
-                          config.model_type === 'moe_fp8' 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-gray-100 text-gray-800'
+                        <span className={`badge ${
+                          config.model_type === 'moe_fp8' ? 'badge-purple' : 'badge-gray'
                         }`}>
                           {config.model_type}
                         </span>
@@ -293,7 +289,7 @@ const ConfigSwitcher = () => {
                       <button
                         onClick={() => handleSwitch(config.filename)}
                         disabled={switching}
-                        className="dashboard-button text-sm ml-4 shrink-0"
+                        className="dashboard-button btn-sm ml-4 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {switching ? 'Switching...' : 'Activate'}
                       </button>

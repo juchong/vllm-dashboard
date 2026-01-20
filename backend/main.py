@@ -12,6 +12,7 @@ from services.hf_service import HuggingFaceService
 from services.gpu_service import GPUService
 from services.config_service import ConfigService
 from services.vllm_service import VLLMService
+from services.download_manager import DownloadManager
 
 
 @asynccontextmanager
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     app.state.gpu_service = GPUService()
     app.state.config_service = ConfigService()
     app.state.vllm_service = VLLMService(app.state.docker_service)
+    app.state.download_manager = DownloadManager(app.state.hf_service)
     
     # Start background tasks
     # GPU monitoring will be started via WebSocket

@@ -53,14 +53,21 @@ class HuggingFaceService:
             self.api.snapshot_download(
                 repo_id=model_name,
                 revision=revision,
-                local_dir=local_dir,
-                local_dir_use_symlinks=False,
-                resume_download=True
+                local_dir=local_dir
             )
             
             return f"Model {model_name} downloaded successfully to {local_dir}"
         except Exception as e:
-            raise Exception(f"Failed to download model: {str(e)}")
+            error_str = str(e)
+            # Provide clearer error messages for common issues
+            if "403" in error_str or "gated" in error_str.lower() or "restricted" in error_str.lower():
+                raise Exception(f"Access denied: {model_name} is a gated model. Visit https://huggingface.co/{model_name} to request access, then ensure your HF token has permission.")
+            elif "401" in error_str or "unauthorized" in error_str.lower():
+                raise Exception(f"Authentication failed: Please check your HuggingFace token is valid and has access to {model_name}")
+            elif "404" in error_str or "not found" in error_str.lower():
+                raise Exception(f"Model not found: {model_name} does not exist on HuggingFace")
+            else:
+                raise Exception(f"Failed to download model: {error_str}")
 
     def get_model_revisions(self, model_name: str) -> Dict[str, Any]:
         """Get available revisions (branches and tags) for a model"""
@@ -209,8 +216,16 @@ class HuggingFaceService:
     def delete_model(self, model_path: str) -> str:
         """Delete a model"""
         try:
+            # Handle path that lost leading slash due to URL normalization
+            if not model_path.startswith('/'):
+                model_path = '/' + model_path
+            
             if not os.path.exists(model_path):
                 raise Exception(f"Model path {model_path} does not exist")
+            
+            # Safety check: only allow deletion within models directory
+            if not model_path.startswith(self.models_dir):
+                raise Exception(f"Cannot delete path outside models directory: {model_path}")
             
             # Remove directory
             import shutil
@@ -223,8 +238,24 @@ class HuggingFaceService:
     def rename_model(self, old_path: str, new_path: str) -> str:
         """Rename a model"""
         try:
+            # Handle paths that lost leading slash due to URL normalization
+            if not old_path.startswith('/'):
+                old_path = '/' + old_path
+            if not new_path.startswith('/'):
+                new_path = '/' + new_path
+            
             if not os.path.exists(old_path):
                 raise Exception(f"Model path {old_path} does not exist")
+            
+            # Safety check: only allow operations within models directory
+            if not old_path.startswith(self.models_dir):
+                raise Exception(f"Cannot rename path outside models directory: {old_path}")
+            if not new_path.startswith(self.models_dir):
+                raise Exception(f"Cannot rename to path outside models directory: {new_path}")
+            
+            # Create parent directory if needed
+            new_parent = os.path.dirname(new_path)
+            os.makedirs(new_parent, exist_ok=True)
             
             # Rename directory
             os.rename(old_path, new_path)

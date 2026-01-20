@@ -32,18 +32,63 @@ async def download_model(
     request: Request,
     model_data: ModelDownloadRequest
 ):
-    """Download a model from Hugging Face Hub"""
-    hf_service: HuggingFaceService = request.app.state.hf_service
+    """Start a background model download and return task ID"""
+    download_manager = request.app.state.download_manager
     
     try:
-        result = hf_service.download_model(
+        task_id = download_manager.start_download(
             model_name=model_data.model_name,
-            revision=model_data.revision,
-            local_dir=model_data.local_dir
+            revision=model_data.revision
         )
-        return {"status": "success", "message": result}
+        return {
+            "status": "success", 
+            "message": f"Download started for {model_data.model_name}",
+            "task_id": task_id
+        }
+    except ValueError as e:
+        # Already downloading
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/download/status/{task_id}")
+async def get_download_status(
+    request: Request,
+    task_id: str
+):
+    """Get status of a download task"""
+    download_manager = request.app.state.download_manager
+    
+    status = download_manager.get_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Download task not found")
+    
+    return {"status": "success", "data": status}
+
+
+@router.get("/download/active")
+async def get_active_downloads(request: Request):
+    """Get all active downloads"""
+    download_manager = request.app.state.download_manager
+    
+    downloads = download_manager.get_active_downloads()
+    return {"status": "success", "data": downloads}
+
+
+@router.post("/download/cancel/{task_id}")
+async def cancel_download(
+    request: Request,
+    task_id: str
+):
+    """Cancel a download task"""
+    download_manager = request.app.state.download_manager
+    
+    success = download_manager.cancel_download(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Download task not found or cannot be cancelled")
+    
+    return {"status": "success", "message": f"Download {task_id} cancelled"}
 
 
 @router.get("/list")

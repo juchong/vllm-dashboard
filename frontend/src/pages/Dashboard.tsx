@@ -34,7 +34,7 @@ const Dashboard = () => {
       </div>
 
       {loading && <LoadingSpinner message="Connecting to monitoring..." />}
-      {error && <div className="text-red-600 p-3 bg-red-50 rounded">Error: {error}</div>}
+      {error && <div className="alert alert-error">Error: {error}</div>}
 
       {/* Model Configuration Switcher */}
       <ConfigSwitcher />

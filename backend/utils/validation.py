@@ -9,7 +9,8 @@ import re
 def validate_model_name(name: str) -> bool:
     """Validate model name format"""
     # Hugging Face model names follow org/model-name format
-    pattern = r'^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+$'
+    # Allows letters, numbers, underscores, hyphens, and dots
+    pattern = r'^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$'
     return bool(re.match(pattern, name))
 
 

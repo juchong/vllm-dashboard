@@ -98,6 +98,7 @@ const ConfigEditor = () => {
         <ModelConfigEditor 
           modelName={selectedPair.model_name}
           config={config}
+          configPath={selectedPair.config_path}
           pairs={configPairs}
           onSave={handleSaveConfig}
           onAssociate={handleAssociateConfig}

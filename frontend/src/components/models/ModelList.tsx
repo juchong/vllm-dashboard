@@ -3,13 +3,15 @@ import ModelCard from './ModelCard'
 
 interface ModelListProps {
   models: ModelInfo[]
+  downloadingModels: string[]  // List of model names currently being downloaded
   onDelete: (modelPath: string) => void
-  onRename: (oldPath: string, newPath: string) => void
+  onRename: (oldPath: string, oldName: string, newName: string) => void
   onViewConfig: (modelName: string) => void
 }
 
 const ModelList = ({ 
   models, 
+  downloadingModels,
   onDelete, 
   onRename, 
   onViewConfig 
@@ -36,8 +38,9 @@ const ModelList = ({
           <ModelCard 
             key={model.path}
             model={model}
+            isDownloading={downloadingModels.includes(model.name)}
             onDelete={() => onDelete(model.path)}
-            onRename={(newName) => onRename(model.path, newName)}
+            onRename={(newName) => onRename(model.path, model.name, newName)}
             onViewConfig={() => onViewConfig(model.name)}
           />
         ))}

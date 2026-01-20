@@ -47,15 +47,16 @@ class ConfigService:
         except Exception as e:
             raise Exception(f"Failed to save configuration: {str(e)}")
     
-    def get_model_config(self, model_name: str) -> Optional[Dict[str, Any]]:
-        """Get configuration for a specific model"""
+    def get_model_config(self, model_name: str) -> Dict[str, Any]:
+        """Get configuration for a specific model. Returns dict with 'config' and 'config_path' keys."""
         # Check if model has an associated config
         if model_name in self.config_pairs:
             config_path = self.config_pairs[model_name]
             if os.path.exists(config_path):
                 try:
                     with open(config_path, 'r') as f:
-                        return yaml.safe_load(f)
+                        config = yaml.safe_load(f)
+                    return {"config": config, "config_path": config_path}
                 except Exception as e:
                     raise Exception(f"Failed to load configuration: {str(e)}")
         
@@ -76,11 +77,13 @@ class ConfigService:
                         model_name == served_name or
                         model_name.lower() in config_model.lower() or
                         config_model.lower() in model_name.lower()):
-                        return config
+                        return {"config": config, "config_path": config_path}
                 except:
                     continue
         
-        return None
+        # No config found - return expected path for new config
+        expected_path = os.path.join(self.config_dir, f"{model_name}.yaml")
+        return {"config": None, "config_path": expected_path}
     
     def associate_config(self, model_name: str, config_path: str) -> str:
         """Associate a model with a configuration file"""

@@ -3,12 +3,13 @@ import { ModelInfo } from '../../types/models'
 
 interface ModelCardProps {
   model: ModelInfo
+  isDownloading?: boolean
   onDelete: () => void
   onRename: (newName: string) => void
   onViewConfig: () => void
 }
 
-const ModelCard = ({ model, onDelete, onRename, onViewConfig }: ModelCardProps) => {
+const ModelCard = ({ model, isDownloading, onDelete, onRename, onViewConfig }: ModelCardProps) => {
   const [isEditing, setIsEditing] = useState(false)
   const [newName, setNewName] = useState(model.name)
 
@@ -28,7 +29,7 @@ const ModelCard = ({ model, onDelete, onRename, onViewConfig }: ModelCardProps) 
     : null
 
   return (
-    <div className="dashboard-card hover:shadow-md transition-shadow">
+    <div className={`dashboard-card hover:shadow-md transition-shadow ${isDownloading ? 'border-blue-200 bg-blue-50' : ''}`}>
       <div className="flex items-start justify-between gap-4">
         {/* Model Info */}
         <div className="flex-1 min-w-0">
@@ -38,11 +39,11 @@ const ModelCard = ({ model, onDelete, onRename, onViewConfig }: ModelCardProps) 
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-1.5 text-sm flex-1 min-w-[200px]"
+                className="form-input flex-1 min-w-[200px] text-sm"
                 onKeyDown={(e) => e.key === 'Enter' && handleRename()}
               />
-              <button onClick={handleRename} className="dashboard-button text-xs">Save</button>
-              <button onClick={() => { setIsEditing(false); setNewName(model.name) }} className="dashboard-button-secondary text-xs">Cancel</button>
+              <button onClick={handleRename} className="dashboard-button btn-xs">Save</button>
+              <button onClick={() => { setIsEditing(false); setNewName(model.name) }} className="dashboard-button-secondary btn-xs">Cancel</button>
             </div>
           ) : (
             <>
@@ -52,11 +53,12 @@ const ModelCard = ({ model, onDelete, onRename, onViewConfig }: ModelCardProps) 
               <h3 className="text-base font-semibold text-gray-900 break-words" title={model.name}>
                 {displayName}
               </h3>
-              <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                <span className="font-medium text-gray-700">{model.size_human}</span>
-                {model.is_valid && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-100 text-green-800">
-                    Valid Model
+              <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
+                <span className="badge badge-gray">{model.size_human}</span>
+                {isDownloading && (
+                  <span className="badge badge-blue gap-1.5">
+                    <span className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></span>
+                    Downloading...
                   </span>
                 )}
               </div>
@@ -64,24 +66,24 @@ const ModelCard = ({ model, onDelete, onRename, onViewConfig }: ModelCardProps) 
           )}
         </div>
 
-        {/* Actions */}
-        {!isEditing && (
+        {/* Actions - only show if not downloading */}
+        {!isEditing && !isDownloading && (
           <div className="flex flex-col gap-1.5 shrink-0">
             <button 
               onClick={onViewConfig} 
-              className="dashboard-button text-xs whitespace-nowrap"
+              className="dashboard-button btn-xs whitespace-nowrap"
             >
               Config
             </button>
             <button 
               onClick={() => setIsEditing(true)} 
-              className="dashboard-button-secondary text-xs whitespace-nowrap"
+              className="dashboard-button-secondary btn-xs whitespace-nowrap"
             >
               Rename
             </button>
             <button 
               onClick={onDelete} 
-              className="dashboard-button-secondary text-xs whitespace-nowrap text-red-600 hover:bg-red-50"
+              className="dashboard-button-danger btn-xs whitespace-nowrap"
             >
               Delete
             </button>

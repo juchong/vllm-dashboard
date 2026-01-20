@@ -5,6 +5,7 @@ import { ConfigPair } from '../../types/config'
 interface ModelConfigEditorProps {
   modelName: string
   config: any
+  configPath: string | null
   pairs: ConfigPair[]
   onSave: (modelName: string, config: any) => void
   onAssociate: (modelName: string, configPath: string) => void
@@ -13,6 +14,7 @@ interface ModelConfigEditorProps {
 const ModelConfigEditor = ({ 
   modelName, 
   config, 
+  configPath,
   pairs, 
   onSave, 
   onAssociate 
@@ -23,20 +25,37 @@ const ModelConfigEditor = ({
 
   useEffect(() => {
     try {
-      // Convert config object to YAML string
-      const yamlStr = yaml.dump(config || {}, {
-        indent: 2,
-        lineWidth: -1,  // Don't wrap lines
-        noRefs: true,
-        sortKeys: false
-      })
-      setEditedConfig(yamlStr)
+      // Check if config is empty (new model with no config)
+      const isEmpty = !config || Object.keys(config).length === 0
+      
+      if (isEmpty) {
+        // Provide a default template for new models
+        const defaultTemplate = `# vLLM Configuration for ${modelName}
+model: ${modelName}
+served_model_name: ${modelName.split('/').pop() || modelName}
+dtype: auto
+max_model_len: 8192
+gpu_memory_utilization: 0.9
+host: 0.0.0.0
+port: 8000
+`
+        setEditedConfig(defaultTemplate)
+      } else {
+        // Convert existing config object to YAML string
+        const yamlStr = yaml.dump(config, {
+          indent: 2,
+          lineWidth: -1,  // Don't wrap lines
+          noRefs: true,
+          sortKeys: false
+        })
+        setEditedConfig(yamlStr)
+      }
       setParseError(null)
     } catch (e) {
       setEditedConfig('')
       setParseError('Failed to convert config to YAML')
     }
-  }, [config])
+  }, [config, modelName])
 
   const validateYaml = (yamlStr: string): { valid: boolean; error?: string; parsed?: any } => {
     try {
@@ -93,11 +112,11 @@ const ModelConfigEditor = ({
     <div className="space-y-6">
       {pairs && pairs.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Associate Configuration</h3>
+          <label className="form-label">Associate Configuration</label>
           <select 
             value={selectedConfig}
             onChange={(e) => setSelectedConfig(e.target.value)}
-            className="w-full border border-gray-300 rounded px-3 py-2"
+            className="form-select"
           >
             <option value="">Select a configuration file</option>
             {pairs.map((pair) => (
@@ -108,7 +127,7 @@ const ModelConfigEditor = ({
           <button 
             onClick={handleAssociate}
             disabled={!selectedConfig}
-            className="dashboard-button mt-2"
+            className="dashboard-button btn-sm mt-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Associate Configuration
           </button>
@@ -117,16 +136,16 @@ const ModelConfigEditor = ({
       
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-gray-700">Edit Configuration (YAML)</h3>
-          <span className={`text-xs px-2 py-0.5 rounded ${parseError ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+          <label className="form-label mb-0">Edit Configuration (YAML)</label>
+          <span className={`badge ${parseError ? 'badge-red' : 'badge-green'}`}>
             {parseError ? 'Invalid' : 'Valid'}
           </span>
         </div>
         <textarea 
           value={editedConfig}
           onChange={(e) => handleChange(e.target.value)}
-          className={`w-full border rounded px-3 py-2 font-mono text-sm h-80 resize-y ${
-            parseError ? 'border-red-300 bg-red-50' : 'border-gray-300'
+          className={`form-input font-mono text-sm h-80 resize-y ${
+            parseError ? 'border-red-300 bg-red-50 focus:ring-red-500' : ''
           }`}
           spellCheck={false}
           placeholder="# vLLM Configuration (YAML format)
@@ -136,21 +155,24 @@ port: 8000
 ..."
         />
         {parseError && (
-          <div className="text-red-600 text-sm mt-1 font-mono bg-red-50 p-2 rounded">
+          <div className="alert alert-error mt-2 text-sm font-mono p-2">
             {parseError}
           </div>
         )}
         <button 
           onClick={handleSave}
           disabled={!!parseError}
-          className={`dashboard-button mt-2 ${parseError ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className="dashboard-button btn-sm mt-3 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Save Configuration
         </button>
       </div>
 
-      <div className="text-xs text-gray-500 space-y-1">
-        <p>Configuration will be saved for model: <code className="bg-gray-100 px-1 rounded">{modelName}</code></p>
+      <div className="text-xs text-gray-500 space-y-1 pt-2 border-t border-gray-200">
+        <p>Model: <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{modelName}</code></p>
+        {configPath && (
+          <p>Config path: <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">{configPath}</code></p>
+        )}
         <p className="text-gray-400">Note: vLLM requires YAML format for configuration files.</p>
       </div>
     </div>
