@@ -17,16 +17,11 @@ A modern web-based dashboard for managing [vLLM](https://github.com/vllm-project
 - **Environment Editor** — Manage environment variables for hardware tuning and model optimization
 - **Multi-GPU Support** — Per-GPU breakdown for temperature, memory, power, and utilization
 
-## Screenshots
+## Screenshot
 
-### Dashboard
-The main dashboard shows vLLM server status, active model configuration, and quick controls for switching models.
+![vLLM Dashboard](docs/images/vllm-dashboard.jpg)
 
-### GPU Monitoring
-Real-time GPU metrics streamed via WebSocket, with per-GPU breakdown for multi-GPU systems.
-
-### Model Management
-Browse downloaded models, validate configurations, and download new models from HuggingFace.
+The dashboard shows vLLM server status, active model configuration, real-time GPU metrics, and quick controls for switching models.
 
 ## Architecture
 
