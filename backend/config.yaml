@@ -1,0 +1,23 @@
+# Dashboard backend configuration
+# These are default values - override with environment variables:
+#   VLLM_COMPOSE_PATH - path to docker compose directory
+#   VLLM_MODELS_DIR - path to HuggingFace models cache
+#   VLLM_CONFIG_DIR - path to vLLM configuration files
+
+server:
+  host: 0.0.0.0
+  port: 8000
+
+docker:
+  socket: /var/run/docker.sock
+  compose_path: /vllm-compose  # Override with VLLM_COMPOSE_PATH
+
+models:
+  cache_dir: /models           # Override with VLLM_MODELS_DIR
+  config_dir: /vllm-configs    # Override with VLLM_CONFIG_DIR
+
+monitoring:
+  poll_interval: 2
+
+huggingface:
+  token_env: HUGGING_FACE_HUB_TOKEN
