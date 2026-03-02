@@ -229,15 +229,18 @@ frontend/
 
 | Problem | Fix |
 |---------|-----|
-| vLLM hangs on multi-GPU startup | Set `NCCL_P2P_DISABLE=1` in `env.hardware` (common on PCIe without NVLink) |
-| FlashInfer MoE kernel error | Set `model_type: dense` to bypass incompatible MoE kernels |
-| Blackwell SM120 kernel errors | Use `vllm_image: vllm/vllm-openai:cu130-nightly` |
-| Wrong image on restart | Clear `active.image` to fall back to compose default |
-| Dashboard can't recreate containers | Mount Docker socket and ensure host paths are accessible |
+| Dashboard can't start/stop vLLM | Verify `/var/run/docker.sock` is mounted and the backend container has GPU access |
+| Config switch succeeds but vLLM doesn't restart | Host paths in `compose.yaml` (env_file, build context) must be accessible inside the backend container — see Volume Mounts |
+| Env changes not applied after restart | Docker reads `env_file` only at creation time. All dashboard actions use `--force-recreate` — if you restarted manually with `docker restart`, recreate instead |
+| GPU metrics not showing | Backend needs GPU access (`deploy.resources.reservations.devices`) for pynvml to detect GPUs |
+| Model download stuck or lost after restart | Download state is persisted in `downloads.json`. Interrupted downloads appear as resumable in the UI |
+| Config save shows no feedback | Open browser console — network errors indicate the backend is unreachable or the config path is not writable |
+| Wrong Docker image on restart | `active.image` persists the last activated image tag. Delete it to fall back to the compose default |
 
 ## Tech Stack
 
 **Frontend:** React 18 · TypeScript · Tailwind CSS · Vite
+
 **Backend:** Python 3.12 · FastAPI · Docker SDK · pynvml · huggingface-hub
 
 ## License
