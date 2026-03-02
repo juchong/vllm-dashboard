@@ -12,6 +12,20 @@ A web dashboard for managing [vLLM](https://github.com/vllm-project/vllm) infere
 - **Real-time GPU monitoring** — temperature, VRAM, power, utilization via WebSocket
 - **Dark mode** with system preference detection
 
+## Screenshots
+
+| Dashboard | Config Editor |
+|-----------|--------------|
+| ![Dashboard](docs/pictures/dashboard.png) | ![Config Editor](docs/pictures/config.png) |
+
+| CLI Import | Environment Variables |
+|------------|----------------------|
+| ![CLI Import](docs/pictures/config_and_importer.png) | ![Environment Variables](docs/pictures/config_envs.png) |
+
+| Monitoring | Containers |
+|------------|------------|
+| ![Monitoring](docs/pictures/monitoring.png) | ![Containers](docs/pictures/containers_list.png) |
+
 ## Quick Start
 
 **Prerequisites:** Docker with Compose, NVIDIA GPU + drivers, NVIDIA Container Toolkit.
