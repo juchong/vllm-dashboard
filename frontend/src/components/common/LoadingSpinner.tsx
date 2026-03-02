@@ -14,7 +14,7 @@ const LoadingSpinner = ({ size = 'md', message }: LoadingSpinnerProps) => {
     <div className="flex flex-col items-center justify-center">
       <div className={`animate-spin rounded-full border-4 border-primary-color border-t-transparent ${sizeClasses[size]}`}></div>
       {message && (
-        <p className="mt-2 text-sm text-gray-600">{message}</p>
+        <p className="mt-2 text-sm text-body">{message}</p>
       )}
     </div>
   )

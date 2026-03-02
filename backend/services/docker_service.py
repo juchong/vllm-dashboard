@@ -11,27 +11,23 @@ from pathlib import Path
 
 
 class DockerService:
+    DOCKER_SOCKET = "unix:///var/run/docker.sock"
+
     def __init__(self):
-        import os
-        # Clear any Docker environment variables that might interfere
-        if 'DOCKER_HOST' in os.environ:
-            del os.environ['DOCKER_HOST']
-        if 'DOCKER_CONTEXT' in os.environ:
-            del os.environ['DOCKER_CONTEXT']
-        if 'DOCKER_TLS_VERIFY' in os.environ:
-            del os.environ['DOCKER_TLS_VERIFY']
-        
-        # Set DOCKER_HOST explicitly to use the socket
-        os.environ['DOCKER_HOST'] = 'unix:///var/run/docker.sock'
-        
-        # Initialize Docker client
-        self.client = docker.from_env()
+        self.client = docker.DockerClient(base_url=self.DOCKER_SOCKET)
         self.compose_path = os.environ.get("VLLM_COMPOSE_PATH", "/vllm-compose")
+        self._subprocess_env = {
+            **os.environ,
+            "DOCKER_HOST": self.DOCKER_SOCKET,
+        }
+        for key in ("DOCKER_CONTEXT", "DOCKER_TLS_VERIFY"):
+            self._subprocess_env.pop(key, None)
     
     def start_container(self, container_name: str, profile: Optional[str] = None) -> str:
         """Start a container using docker compose"""
         cmd = [
             "docker", "compose",
+            "-p", "ai",
             "--file", f"{self.compose_path}/compose.yaml"
         ]
         
@@ -46,7 +42,8 @@ class DockerService:
                 cwd=self.compose_path,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=self._subprocess_env,
             )
             return f"Container {container_name} started successfully"
         except subprocess.CalledProcessError as e:

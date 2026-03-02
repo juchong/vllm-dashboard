@@ -10,7 +10,7 @@ const Card = ({ children, title, className = '' }: CardProps) => {
   return (
     <div className={`dashboard-card ${className}`}>
       {title && (
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+        <h3 className="text-lg font-semibold text-heading mb-4">{title}</h3>
       )}
       {children}
     </div>

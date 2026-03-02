@@ -48,12 +48,12 @@ const ModelCard = ({ model, isDownloading, onDelete, onRename, onViewConfig }: M
           ) : (
             <>
               {orgName && (
-                <span className="text-xs text-gray-500 font-medium">{orgName}/</span>
+                <span className="text-xs text-dim font-medium">{orgName}/</span>
               )}
-              <h3 className="text-base font-semibold text-gray-900 break-words" title={model.name}>
+              <h3 className="text-base font-semibold text-heading break-words" title={model.name}>
                 {displayName}
               </h3>
-              <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
+              <div className="flex items-center gap-3 mt-2 text-sm text-dim">
                 <span className="badge badge-gray">{model.size_human}</span>
                 {isDownloading && (
                   <span className="badge badge-blue gap-1.5">
@@ -92,7 +92,7 @@ const ModelCard = ({ model, isDownloading, onDelete, onRename, onViewConfig }: M
       </div>
 
       {!isEditing && (
-        <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500 truncate" title={model.path}>
+        <div className="mt-3 pt-3 border-t border-default text-xs text-dim truncate" title={model.path}>
           {model.path}
         </div>
       )}

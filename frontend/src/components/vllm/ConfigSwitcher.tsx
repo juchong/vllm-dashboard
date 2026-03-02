@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import axios from 'axios'
+import api from '../../services/api'
 import EnvEditor from './EnvEditor'
 
 interface VLLMConfig {
@@ -37,9 +37,9 @@ const ConfigSwitcher = () => {
   const fetchData = useCallback(async () => {
     try {
       const [configsRes, activeRes, statusRes] = await Promise.all([
-        axios.get('/api/vllm/configs'),
-        axios.get('/api/vllm/active'),
-        axios.get('/api/vllm/status'),
+        api.get('/vllm/configs'),
+        api.get('/vllm/active'),
+        api.get('/vllm/status'),
       ])
       
       setConfigs(configsRes.data.data || [])
@@ -75,7 +75,7 @@ const ConfigSwitcher = () => {
     setError(null)
     
     try {
-      await axios.post('/api/vllm/switch', { config_filename: configFilename })
+      await api.post('/vllm/switch', { config_filename: configFilename })
       // Wait a moment for container to start recreating
       await new Promise(resolve => setTimeout(resolve, 2000))
       await fetchData()
@@ -93,7 +93,7 @@ const ConfigSwitcher = () => {
     
     setSwitching(true)
     try {
-      await axios.post('/api/vllm/restart')
+      await api.post('/vllm/restart')
       await new Promise(resolve => setTimeout(resolve, 2000))
       await fetchData()
     } catch (err: any) {
@@ -110,7 +110,7 @@ const ConfigSwitcher = () => {
     
     setSwitching(true)
     try {
-      await axios.post('/api/vllm/stop')
+      await api.post('/vllm/stop')
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to stop')
@@ -124,7 +124,7 @@ const ConfigSwitcher = () => {
     
     setSwitching(true)
     try {
-      await axios.post('/api/vllm/start')
+      await api.post('/vllm/start')
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start')
@@ -147,7 +147,7 @@ const ConfigSwitcher = () => {
       case 'healthy': return 'text-green-600'
       case 'unhealthy': return 'text-red-600'
       case 'starting': return 'text-yellow-600'
-      default: return 'text-gray-600'
+      default: return 'text-body'
     }
   }
 
@@ -156,7 +156,7 @@ const ConfigSwitcher = () => {
       <div className="dashboard-card">
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Loading configurations...</span>
+          <span className="ml-3 text-body">Loading configurations...</span>
         </div>
       </div>
     )
@@ -167,7 +167,7 @@ const ConfigSwitcher = () => {
       {/* Status Card */}
       <div className="dashboard-card">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">vLLM Server Status</h2>
+          <h2 className="text-lg font-semibold text-heading">vLLM Server Status</h2>
           <div className="flex items-center gap-2">
             {vllmStatus && (
               <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(vllmStatus.status)}`}>
@@ -183,12 +183,12 @@ const ConfigSwitcher = () => {
         </div>
 
         {activeConfig?.config && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <div className="text-sm text-gray-500 mb-1">Active Model</div>
-            <div className="font-semibold text-gray-900">{activeConfig.config.served_model_name}</div>
-            <div className="text-sm text-gray-600 mt-1">{activeConfig.config.model}</div>
-            <div className="flex flex-wrap gap-4 mt-2 text-xs text-gray-500">
-              <span>Context: {(activeConfig.config.max_model_len / 1024).toFixed(0)}K</span>
+          <div className="surface-secondary rounded-lg p-4 mb-4">
+            <div className="text-sm text-dim mb-1">Active Model</div>
+            <div className="font-semibold text-heading">{activeConfig.config.served_model_name}</div>
+            <div className="text-sm text-body mt-1">{activeConfig.config.model}</div>
+            <div className="flex flex-wrap gap-4 mt-2 text-xs text-dim">
+              <span>Context: {activeConfig.config.max_model_len ? `${(activeConfig.config.max_model_len / 1024).toFixed(0)}K` : 'N/A'}</span>
               <span>TP: {activeConfig.config.tensor_parallel_size}</span>
               <span>Type: {activeConfig.model_type}</span>
             </div>
@@ -244,10 +244,10 @@ const ConfigSwitcher = () => {
 
       {/* Available Configurations */}
       <div className="dashboard-card">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Available Configurations</h2>
+        <h2 className="text-lg font-semibold text-heading mb-4">Available Configurations</h2>
         
         {configs.length === 0 ? (
-          <div className="text-gray-500 text-center py-8">
+          <div className="text-dim text-center py-8">
             No configurations found. Add YAML config files to your vLLM configs directory.
           </div>
         ) : (
@@ -260,14 +260,14 @@ const ConfigSwitcher = () => {
                   key={config.filename}
                   className={`border rounded-lg p-4 transition-colors ${
                     isActive 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-200 hover:border-gray-300'
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
+                      : 'border-default hover:border-gray-300 dark:hover:border-gray-600'
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-gray-900">{config.name}</h3>
+                        <h3 className="font-semibold text-heading">{config.name}</h3>
                         {isActive && (
                           <span className="badge bg-blue-500 text-white">Active</span>
                         )}
@@ -277,11 +277,11 @@ const ConfigSwitcher = () => {
                           {config.model_type}
                         </span>
                       </div>
-                      <div className="text-sm text-gray-600 mt-1 truncate">{config.model}</div>
-                      <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                        <span>Context: {(config.max_model_len / 1024).toFixed(0)}K</span>
+                      <div className="text-sm text-body mt-1 truncate">{config.model}</div>
+                      <div className="flex gap-4 mt-2 text-xs text-dim">
+                        <span>Context: {config.max_model_len ? `${(config.max_model_len / 1024).toFixed(0)}K` : 'N/A'}</span>
                         <span>TP: {config.tensor_parallel_size}</span>
-                        <span className="text-gray-400">{config.filename}</span>
+                        <span className="text-faint">{config.filename}</span>
                       </div>
                     </div>
                     
@@ -304,12 +304,12 @@ const ConfigSwitcher = () => {
 
       {switching && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm mx-4">
+          <div className="surface-primary rounded-lg p-6 max-w-sm mx-4">
             <div className="flex items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              <span className="ml-3 text-gray-700">
+              <span className="ml-3 text-body">
                 Switching configuration...<br/>
-                <span className="text-sm text-gray-500">This may take a few minutes</span>
+                <span className="text-sm text-dim">This may take a few minutes</span>
               </span>
             </div>
           </div>

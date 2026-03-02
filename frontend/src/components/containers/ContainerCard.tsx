@@ -25,8 +25,8 @@ const ContainerCard = ({ container, onStart, onStop, onRestart, onViewLogs }: Co
     <div className="dashboard-card">
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">{container.name}</h3>
-          <p className="text-sm text-gray-500 mt-1">{container.image || container.id.substring(0, 12)}</p>
+          <h3 className="text-lg font-semibold text-heading">{container.name}</h3>
+          <p className="text-sm text-dim mt-1">{container.image || container.id.substring(0, 12)}</p>
         </div>
         <span className={getStatusClass()}>{container.status}</span>
       </div>
@@ -43,7 +43,7 @@ const ContainerCard = ({ container, onStart, onStop, onRestart, onViewLogs }: Co
         <button onClick={onViewLogs} className="dashboard-button-secondary">View Logs</button>
       </div>
 
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-body">
         <p>Created: {formatRelativeTime(container.created)}</p>
       </div>
     </div>

@@ -3,8 +3,10 @@ vLLM service for managing the vLLM inference server
 """
 
 import os
+import json
 import shutil
 import logging
+import yaml
 from typing import Dict, Any, List, Optional
 from services.docker_service import DockerService
 
@@ -20,35 +22,9 @@ class VLLMService:
         self.active_env_path = os.path.join(self.configs_dir, "env.active")
         self.container_name = "vllm"
         self.proxy_container_name = "vllm-proxy"
-        
-        # Hardware-specific env vars (constant for this system)
-        self.hardware_env = {
-            "NCCL_ALGO": "Ring",
-            "NCCL_PROTO": "Simple",
-            "NCCL_MIN_NCHANNELS": "4",
-            "NCCL_MAX_NCHANNELS": "8",
-            "NCCL_BUFFSIZE": "8388608",
-            "NCCL_P2P_LEVEL": "PHB",
-            "NCCL_DEBUG": "WARN",
-            "NCCL_IB_DISABLE": "1",
-            "TORCH_CUDA_ARCH_LIST": "12.0",
-            "HF_HUB_ENABLE_HF_TRANSFER": "1",
-        }
-        
-        # Model-type specific env vars
-        self.model_type_envs = {
-            "moe_fp8": {
-                "VLLM_USE_FLASHINFER_MOE_FP8": "1",
-                "VLLM_FLASHINFER_MOE_BACKEND": "latency",
-            },
-            "dense": {
-                # No special env vars for dense models
-            },
-        }
     
     def list_configs(self) -> List[Dict[str, Any]]:
         """List all available vLLM configurations"""
-        import yaml
         configs = []
         
         try:
@@ -80,7 +56,6 @@ class VLLMService:
     
     def get_active_config(self) -> Optional[Dict[str, Any]]:
         """Get the currently active configuration"""
-        import yaml
         try:
             if not os.path.exists(self.active_config_path):
                 return None
@@ -99,7 +74,7 @@ class VLLMService:
                         if candidate.get("model") == config.get("model"):
                             config_filename = filename
                             break
-                    except:
+                    except (yaml.YAMLError, IOError, OSError):
                         pass
             
             return {
@@ -114,7 +89,6 @@ class VLLMService:
     
     def switch_config(self, config_filename: str) -> Dict[str, Any]:
         """Switch to a different configuration"""
-        import yaml
         config_path = os.path.join(self.configs_dir, config_filename)
         
         if not os.path.exists(config_path):
@@ -126,17 +100,28 @@ class VLLMService:
                 config = yaml.safe_load(f)
             
             model_type = self._detect_model_type(config)
+            env_overrides = config.get("env_overrides", {})
+            vllm_image = config.get("vllm_image")
             
-            # Write the active config
-            shutil.copy(config_path, self.active_config_path)
-            logger.info(f"Copied {config_filename} to active.yaml")
+            # Process config: convert nested dicts to JSON strings, strip dashboard-only fields
+            processed_config = self._process_config_for_vllm(config)
             
-            # Write the active env file
-            self._write_env_file(model_type)
+            # Write the processed active config
+            with open(self.active_config_path, 'w') as f:
+                yaml.dump(processed_config, f, default_flow_style=False, sort_keys=False)
+            logger.info(f"Processed and wrote {config_filename} to active.yaml")
+            
+            # Write the active env file (hardware + model-type + per-model overrides)
+            self._write_env_file(model_type, env_overrides)
             logger.info(f"Updated env.active for model_type={model_type}")
             
+            # Persist the active image so restarts use the same image
+            active_image_path = os.path.join(self.configs_dir, "active.image")
+            with open(active_image_path, 'w') as f:
+                f.write(vllm_image or "")
+            
             # Restart vLLM and ensure proxy is running
-            restart_result = self._restart_vllm_container()
+            restart_result = self._restart_vllm_container(vllm_image=vllm_image)
             
             return {
                 "success": True,
@@ -184,13 +169,8 @@ class VLLMService:
             return {"success": False, "error": str(e)}
     
     def start_vllm(self) -> Dict[str, Any]:
-        """Start the vLLM container"""
-        try:
-            container = self.docker_service.client.containers.get(self.container_name)
-            container.start()
-            return {"success": True, "message": "vLLM container started"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        """Start the vLLM container. Uses force-recreate to ensure env_file is re-read."""
+        return self._restart_vllm_container()
     
     def get_proxy_status(self) -> Dict[str, Any]:
         """Get the status of the vLLM proxy container"""
@@ -218,6 +198,7 @@ class VLLMService:
         env_file_info = {
             "env.hardware": {"description": "Hardware-specific settings (NCCL tuning)", "editable": True},
             "env.moe-fp8": {"description": "FP8 MoE model optimizations", "editable": True},
+            "env.moe-fp4": {"description": "FP4 MoE model optimizations", "editable": True},
             "env.dense": {"description": "Dense model settings", "editable": True},
             "env.active": {"description": "Active configuration (auto-generated)", "editable": False},
         }
@@ -238,7 +219,7 @@ class VLLMService:
     def get_env_file(self, filename: str) -> str:
         """Get contents of a specific environment file"""
         # Only allow reading known env files
-        allowed_files = ["env.hardware", "env.moe-fp8", "env.dense", "env.active"]
+        allowed_files = ["env.hardware", "env.moe-fp8", "env.moe-fp4", "env.dense", "env.active"]
         if filename not in allowed_files:
             raise FileNotFoundError(f"Unknown env file: {filename}")
         
@@ -254,7 +235,7 @@ class VLLMService:
     def update_env_file(self, filename: str, content: str) -> Dict[str, Any]:
         """Update contents of a specific environment file"""
         # Only allow editing certain env files
-        editable_files = ["env.hardware", "env.moe-fp8", "env.dense"]
+        editable_files = ["env.hardware", "env.moe-fp8", "env.moe-fp4", "env.dense"]
         if filename not in editable_files:
             raise ValueError(f"Cannot edit {filename}")
         
@@ -272,19 +253,89 @@ class VLLMService:
             "message": f"Successfully updated {filename}",
         }
     
+    def get_env_preview(self, config_filename: str) -> Dict[str, Any]:
+        """Get a layered preview of env vars that would be set for a given config."""
+        config_path = os.path.join(self.configs_dir, config_filename)
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_filename}")
+        
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        model_type = self._detect_model_type(config)
+        model_type_filename = f"env.{model_type.replace('_', '-')}"
+        
+        hardware_env = self._read_env_file("env.hardware")
+        model_type_env = self._read_env_file(model_type_filename)
+        overrides = config.get("env_overrides", {})
+        
+        inherited = {}
+        inherited_sources = {}
+        for key, value in hardware_env.items():
+            inherited[key] = value
+            inherited_sources[key] = "env.hardware"
+        for key, value in model_type_env.items():
+            inherited[key] = value
+            inherited_sources[key] = model_type_filename
+        
+        merged = {**inherited, **{str(k): str(v) for k, v in overrides.items()}}
+        
+        return {
+            "model_type": model_type,
+            "model_type_filename": model_type_filename,
+            "inherited": inherited,
+            "inherited_sources": inherited_sources,
+            "overrides": {str(k): str(v) for k, v in overrides.items()},
+            "merged": merged,
+        }
+
+    # Fields used by the dashboard but not valid vLLM config keys
+    DASHBOARD_ONLY_KEYS = {'model_type', 'env_overrides', 'vllm_image'}
+
+    def _process_config_for_vllm(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process config for writing to active.yaml:
+        - Strip dashboard-only fields (model_type, env_overrides)
+        - Convert nested dicts to JSON strings for keys vLLM expects as JSON
+        """
+        json_string_keys = {
+            'compilation_config',
+            'override_neuron_config',
+            'hf_overrides',
+            'pooling_type_config',
+        }
+        
+        processed = {}
+        for key, value in config.items():
+            if key in self.DASHBOARD_ONLY_KEYS:
+                continue
+            if key in json_string_keys and isinstance(value, dict):
+                processed[key] = json.dumps(value)
+                logger.debug(f"Converted {key} to JSON string")
+            else:
+                processed[key] = value
+        
+        return processed
+    
     def _detect_model_type(self, config: Dict[str, Any]) -> str:
-        """Detect the model type from config"""
+        """Detect the model type from config. Prefers explicit model_type field, falls back to heuristic."""
+        if "model_type" in config:
+            return config["model_type"]
+        
         model = config.get("model", "").lower()
+        
+        # FP4 MoE models
+        if ("fp4" in model or "nvfp4" in model) and ("moe" in model or "a3b" in model or "scout" in model or "m2" in model):
+            return "moe_fp4"
+        if config.get("enable_expert_parallel") and ("fp4" in model or "nvfp4" in model):
+            return "moe_fp4"
         
         # FP8 MoE models
         if "fp8" in model and ("moe" in model or "a3b" in model or "coder" in model):
             return "moe_fp8"
+        if "a3b" in model or ("moe" in model and "fp4" not in model):
+            return "moe_fp8"
         
-        # Check for MoE indicators
-        if "a3b" in model or "moe" in model:
-            return "moe_fp8"  # Assume FP8 for MoE by default
-        
-        # Dense models
         return "dense"
     
     def _read_env_file(self, filename: str) -> Dict[str, str]:
@@ -304,19 +355,21 @@ class VLLMService:
         
         return env_vars
     
-    def _write_env_file(self, model_type: str) -> None:
-        """Write the active environment file by combining hardware + model-type env files"""
-        # Read from actual env files instead of hardcoded values
+    def _write_env_file(self, model_type: str, env_overrides: Dict[str, str] | None = None) -> None:
+        """Write the active environment file by combining hardware + model-type + per-model overrides."""
         hardware_env = self._read_env_file("env.hardware")
         
-        # Select the appropriate model-type env file
-        model_type_filename = f"env.{model_type.replace('_', '-')}"  # e.g., "env.moe-fp8" or "env.dense"
+        model_type_filename = f"env.{model_type.replace('_', '-')}"
         model_type_env = self._read_env_file(model_type_filename)
+        
+        sources = [f"env.hardware + {model_type_filename}"]
+        if env_overrides:
+            sources.append("env_overrides")
         
         lines = [
             "# Active vLLM environment configuration",
             "# Managed by vllm-dashboard - DO NOT EDIT MANUALLY",
-            f"# Generated from: env.hardware + {model_type_filename}",
+            f"# Generated from: {' + '.join(sources)}",
             "",
             "# Hardware-specific settings (from env.hardware)",
         ]
@@ -326,29 +379,47 @@ class VLLMService:
         
         if model_type_env:
             lines.append("")
-            lines.append(f"# Model-specific settings (from {model_type_filename})")
+            lines.append(f"# Model-type settings (from {model_type_filename})")
             for key, value in model_type_env.items():
                 lines.append(f"{key}={value}")
         else:
             lines.append("")
             lines.append(f"# Model type: {model_type} (no additional env vars)")
         
+        if env_overrides:
+            lines.append("")
+            lines.append("# Per-model overrides (from config env_overrides)")
+            for key, value in env_overrides.items():
+                lines.append(f"{key}={value}")
+        
         with open(self.active_env_path, 'w') as f:
             f.write('\n'.join(lines) + '\n')
     
-    def _restart_vllm_container(self) -> Dict[str, Any]:
-        """Restart the vLLM and proxy containers using docker compose"""
+    def _restart_vllm_container(self, vllm_image: str | None = None) -> Dict[str, Any]:
+        """Restart the vLLM and proxy containers using docker compose.
+        Injects VLLM_IMAGE into the subprocess env so compose resolves ${VLLM_IMAGE:-default}."""
         import subprocess
         
+        env = {**self.docker_service._subprocess_env}
+        
+        # Use provided image, or fall back to persisted active.image
+        image = vllm_image
+        if not image:
+            active_image_path = os.path.join(self.configs_dir, "active.image")
+            if os.path.exists(active_image_path):
+                image = open(active_image_path).read().strip()
+        if image:
+            env["VLLM_IMAGE"] = image
+            logger.info(f"Using vLLM image: {image}")
+        
         try:
-            # Use docker compose to recreate both vllm and vllm-proxy
-            # This ensures proxy is always running (required for external access)
             result = subprocess.run(
-                ["docker", "compose", "up", "-d", "--force-recreate", "vllm", "vllm-proxy"],
+                ["docker", "compose", "-p", "ai", "up", "-d", "--force-recreate", "--pull", "missing", "vllm", "vllm-proxy"],
                 cwd=self.compose_path,
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env=env,
             )
             
             if result.returncode == 0:

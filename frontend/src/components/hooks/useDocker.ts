@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import axios from 'axios'
+import api from '../../services/api'
 import { ContainerStatus } from '../../types/docker'
 
 const useDocker = () => {
@@ -11,7 +11,7 @@ const useDocker = () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await axios.get('/api/containers/status')
+      const response = await api.get('/containers/status')
       // Transform object response to array with name property
       const data = response.data.data
       const containerArray: ContainerStatus[] = Object.entries(data).map(
@@ -37,7 +37,7 @@ const useDocker = () => {
   const startContainer = async (containerName: string) => {
     setLoading(true)
     try {
-      await axios.post('/api/containers/start', { container_name: containerName })
+      await api.post('/containers/start', { container_name: containerName })
       await fetchContainers()
     } catch (err) {
       setError('Failed to start container')
@@ -50,7 +50,7 @@ const useDocker = () => {
   const stopContainer = async (containerName: string) => {
     setLoading(true)
     try {
-      await axios.post('/api/containers/stop', { container_name: containerName })
+      await api.post('/containers/stop', { container_name: containerName })
       await fetchContainers()
     } catch (err) {
       setError('Failed to stop container')
@@ -63,7 +63,7 @@ const useDocker = () => {
   const restartContainer = async (containerName: string) => {
     setLoading(true)
     try {
-      await axios.post('/api/containers/restart', { container_name: containerName })
+      await api.post('/containers/restart', { container_name: containerName })
       await fetchContainers()
     } catch (err) {
       setError('Failed to restart container')

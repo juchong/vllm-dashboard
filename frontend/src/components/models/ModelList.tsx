@@ -18,7 +18,7 @@ const ModelList = ({
 }: ModelListProps) => {
   if (models.length === 0) {
     return (
-      <div className="dashboard-card text-center py-12 text-gray-500">
+      <div className="dashboard-card text-center py-12 text-dim">
         <p className="text-lg mb-2">No models downloaded yet</p>
         <p className="text-sm">Use the "Download Model" button above to get started</p>
       </div>
@@ -28,7 +28,7 @@ const ModelList = ({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-700">
+        <h2 className="text-lg font-semibold text-body">
           {models.length} Model{models.length !== 1 ? 's' : ''} Downloaded
         </h2>
       </div>

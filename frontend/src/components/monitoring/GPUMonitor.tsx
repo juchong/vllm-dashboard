@@ -28,15 +28,15 @@ const GPUMonitor = ({ metrics }: GPUMonitorProps) => {
 
   return (
     <div className="dashboard-card">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">GPU Status</h2>
+      <h2 className="text-lg font-semibold text-heading mb-4">GPU Status</h2>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {metrics.map((gpu) => (
-          <div key={gpu.index} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+          <div key={gpu.index} className="border border-default rounded-lg p-4 surface-secondary">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h3 className="font-semibold text-gray-900">GPU {gpu.index}</h3>
-                <p className="text-sm text-gray-500">{gpu.name}</p>
+                <h3 className="font-semibold text-heading">GPU {gpu.index}</h3>
+                <p className="text-sm text-dim">{gpu.name}</p>
               </div>
               <span className={`text-2xl font-bold ${getTemperatureColor(gpu.temperature)}`}>
                 {gpu.temperature}°C
@@ -47,7 +47,7 @@ const GPUMonitor = ({ metrics }: GPUMonitorProps) => {
               {/* GPU Utilization */}
               <div>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">GPU Utilization</span>
+                  <span className="text-body">GPU Utilization</span>
                   <span className="font-medium">{gpu.utilization.gpu}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-3">
@@ -61,7 +61,7 @@ const GPUMonitor = ({ metrics }: GPUMonitorProps) => {
               {/* Memory Usage */}
               <div>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">VRAM</span>
+                  <span className="text-body">VRAM</span>
                   <span className="font-medium">
                     {formatBytes(gpu.memory.used)} / {formatBytes(gpu.memory.total)} GB ({gpu.memory.usage_percent.toFixed(0)}%)
                   </span>
@@ -76,7 +76,7 @@ const GPUMonitor = ({ metrics }: GPUMonitorProps) => {
               
               {/* Power */}
               <div className="flex justify-between text-sm pt-2 border-t">
-                <span className="text-gray-600">Power</span>
+                <span className="text-body">Power</span>
                 <span className="font-medium">
                   {Math.round(gpu.power.usage / 1000)}W / {Math.round(gpu.power.limit / 1000)}W
                 </span>

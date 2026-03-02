@@ -18,7 +18,7 @@ const ContainerControls = ({
 }: ContainerControlsProps) => {
   if (containers.length === 0) {
     return (
-      <div className="dashboard-card text-center text-gray-500">
+      <div className="dashboard-card text-center text-dim">
         No vLLM containers found
       </div>
     )

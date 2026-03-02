@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import axios from 'axios'
+import api from '../../services/api'
 
 interface ContainerLogsProps {
   containerName: string
@@ -16,7 +16,7 @@ const ContainerLogs = ({ containerName, onClose }: ContainerLogsProps) => {
   
   const fetchLogs = useCallback(async () => {
     try {
-      const response = await axios.get(`/api/containers/logs`, {
+      const response = await api.get(`/containers/logs`, {
         params: { container_name: containerName, tail: 200 }
       })
       setLogs(response.data.logs || 'No logs available')
@@ -63,13 +63,13 @@ const ContainerLogs = ({ containerName, onClose }: ContainerLogsProps) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl h-[80vh] flex flex-col">
-        <div className="flex justify-between items-center p-4 border-b bg-gray-50 rounded-t-lg">
-          <h2 className="text-lg font-semibold text-gray-900">
+      <div className="surface-primary rounded-lg shadow-xl w-full max-w-5xl h-[80vh] flex flex-col">
+        <div className="flex justify-between items-center p-4 border-b surface-secondary rounded-t-lg">
+          <h2 className="text-lg font-semibold text-heading">
             Logs: <span className="text-blue-600">{containerName}</span>
           </h2>
           <div className="flex gap-2 items-center">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
+            <label className="flex items-center gap-2 text-sm text-body">
               <input
                 type="checkbox"
                 checked={autoRefresh}

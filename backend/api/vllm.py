@@ -159,3 +159,17 @@ async def update_env_file(request: Request, filename: str, body: UpdateEnvReques
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/env/preview/{config_filename}")
+async def get_env_preview(request: Request, config_filename: str):
+    """Get layered env var preview for a config (inherited + overrides + merged)"""
+    vllm_service = request.app.state.vllm_service
+
+    try:
+        result = vllm_service.get_env_preview(config_filename)
+        return {"status": "success", "data": result}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

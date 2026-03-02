@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import axios from 'axios'
+import api from '../../services/api'
 
 interface EnvFile {
   filename: string
@@ -24,7 +24,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
 
   const fetchEnvFiles = useCallback(async () => {
     try {
-      const response = await axios.get('/api/vllm/env')
+      const response = await api.get('/vllm/env')
       setEnvFiles(response.data.data || [])
     } catch (err) {
       setError('Failed to fetch environment files')
@@ -35,12 +35,17 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
   }, [])
 
   const fetchFileContent = useCallback(async (filename: string) => {
+    if (content !== originalContent) {
+      if (!confirm('You have unsaved changes. Discard and switch files?')) {
+        return
+      }
+    }
     setLoading(true)
     setError(null)
     setSuccess(null)
     
     try {
-      const response = await axios.get(`/api/vllm/env/${filename}`)
+      const response = await api.get(`/vllm/env/${filename}`)
       const fileContent = response.data.data?.content || ''
       setContent(fileContent)
       setOriginalContent(fileContent)
@@ -51,7 +56,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [content, originalContent])
 
   const handleSave = async () => {
     if (!selectedFile) return
@@ -61,7 +66,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
     setSuccess(null)
     
     try {
-      await axios.put(`/api/vllm/env/${selectedFile}`, { content })
+      await api.put(`/vllm/env/${selectedFile}`, { content })
       setOriginalContent(content)
       setSuccess(`Successfully saved ${selectedFile}`)
       
@@ -98,13 +103,13 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="surface-primary rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Environment Configuration</h2>
+          <h2 className="text-lg font-semibold text-heading">Environment Configuration</h2>
           <button 
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl"
+            className="text-faint hover:text-gray-600 dark:hover:text-gray-300 text-xl"
           >
             &times;
           </button>
@@ -113,8 +118,8 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
         {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* File List Sidebar */}
-          <div className="w-64 border-r bg-gray-50 p-4 overflow-y-auto">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Environment Files</h3>
+          <div className="w-64 border-r surface-secondary p-4 overflow-y-auto">
+            <h3 className="text-sm font-medium text-body mb-3">Environment Files</h3>
             <div className="space-y-2">
               {envFiles.map((file) => (
                 <button
@@ -123,13 +128,13 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
                   className={`w-full text-left p-2 rounded text-sm transition-colors ${
                     selectedFile === file.filename
                       ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                      : 'hover:bg-gray-100 text-gray-700'
+                      : 'surface-hover text-body'
                   }`}
                 >
                   <div className="font-medium">{file.filename}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{file.description}</div>
+                  <div className="text-xs text-dim mt-0.5">{file.description}</div>
                   {!file.editable && (
-                    <span className="inline-block mt-1 px-1.5 py-0.5 text-xs bg-gray-200 text-gray-600 rounded">
+                    <span className="inline-block mt-1 px-1.5 py-0.5 text-xs bg-gray-200 dark:bg-gray-600 text-body rounded">
                       read-only
                     </span>
                   )}
@@ -152,13 +157,13 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
           <div className="flex-1 flex flex-col p-4 overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-gray-500">Loading...</div>
+                <div className="text-dim">Loading...</div>
               </div>
             ) : selectedFile ? (
               <>
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <span className="font-medium text-gray-900">{selectedFile}</span>
+                    <span className="font-medium text-heading">{selectedFile}</span>
                     {hasChanges && (
                       <span className="ml-2 text-xs text-orange-600">(unsaved changes)</span>
                     )}
@@ -168,7 +173,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
                       <button
                         onClick={handleReset}
                         disabled={!hasChanges || saving}
-                        className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-100 rounded disabled:opacity-50"
+                        className="px-3 py-1 text-sm text-body surface-hover rounded disabled:opacity-50"
                       >
                         Reset
                       </button>
@@ -201,8 +206,8 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
                   disabled={!selectedFileInfo?.editable}
                   className={`flex-1 w-full border rounded p-3 font-mono text-sm resize-none ${
                     selectedFileInfo?.editable 
-                      ? 'border-gray-300 bg-white' 
-                      : 'border-gray-200 bg-gray-50 text-gray-600'
+                      ? 'border-default surface-primary' 
+                      : 'border-default surface-secondary text-body'
                   }`}
                   spellCheck={false}
                   placeholder={selectedFileInfo?.editable 
@@ -211,7 +216,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
                   }
                 />
 
-                <div className="mt-2 text-xs text-gray-500">
+                <div className="mt-2 text-xs text-dim">
                   {selectedFileInfo?.editable ? (
                     <>Format: <code>KEY=VALUE</code> (one per line). Lines starting with <code>#</code> are comments.</>
                   ) : (
@@ -220,7 +225,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
                 </div>
               </>
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
+              <div className="flex items-center justify-center h-full text-dim">
                 Select a file from the sidebar
               </div>
             )}
@@ -228,7 +233,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t bg-gray-50 text-xs text-gray-500">
+        <div className="p-4 border-t surface-secondary text-xs text-dim">
           <strong>Note:</strong> Changes to env files will take effect on the next config switch or vLLM restart.
         </div>
       </div>

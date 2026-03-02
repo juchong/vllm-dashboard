@@ -8,11 +8,11 @@ interface ResourceChartsProps {
 const ResourceCharts = ({ systemMetrics }: ResourceChartsProps) => {
   return (
     <div className="dashboard-card">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Resource Usage Charts</h2>
+      <h2 className="text-lg font-semibold text-heading mb-4">Resource Usage Charts</h2>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-2">CPU Usage</h3>
+        <div className="border border-default rounded-lg p-4">
+          <h3 className="font-semibold text-heading mb-2">CPU Usage</h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={systemMetrics}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -24,8 +24,8 @@ const ResourceCharts = ({ systemMetrics }: ResourceChartsProps) => {
           </ResponsiveContainer>
         </div>
         
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-2">Memory Usage</h3>
+        <div className="border border-default rounded-lg p-4">
+          <h3 className="font-semibold text-heading mb-2">Memory Usage</h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={systemMetrics}>
               <CartesianGrid strokeDasharray="3 3" />

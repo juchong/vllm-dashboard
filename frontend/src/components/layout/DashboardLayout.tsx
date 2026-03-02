@@ -8,7 +8,7 @@ interface DashboardLayoutProps {
 
 const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-background-color text-text-primary">
       <Sidebar />
       <div className="flex-1 ml-64">
         <Header />

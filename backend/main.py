@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     app.state.gpu_service = GPUService()
     app.state.config_service = ConfigService()
     app.state.vllm_service = VLLMService(app.state.docker_service)
-    app.state.download_manager = DownloadManager(app.state.hf_service)
+    app.state.download_manager = DownloadManager(app.state.hf_service, app.state.config_service)
     
     # Start background tasks
     # GPU monitoring will be started via WebSocket

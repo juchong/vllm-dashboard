@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import axios from 'axios'
+import api from '../../services/api'
 
 interface ModelDownloadProps {
   onSuccess: () => void
@@ -45,13 +45,13 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
     setRevisions(null)
 
     try {
-      const response = await axios.get(`/api/models/validate/${name}`)
+      const response = await api.get(`/models/validate/${name}`)
       setValidation(response.data.data)
 
       if (response.data.data.valid) {
         setIsLoadingRevisions(true)
         try {
-          const revResponse = await axios.get(`/api/models/revisions/${name}`)
+          const revResponse = await api.get(`/models/revisions/${name}`)
           setRevisions(revResponse.data.data)
           setRevision(revResponse.data.data.default || 'main')
         } catch (err) {
@@ -78,7 +78,7 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
     setDownloadError(null)
     
     try {
-      await axios.post('/api/models/download', { 
+      await api.post('/models/download', { 
         model_name: modelName.trim(), 
         revision: revision || undefined 
       })
@@ -177,7 +177,7 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
               onBlur={handleModelNameBlur}
               placeholder="organization/model-name"
               disabled={isStarting || isStarted}
-              className={`form-input disabled:bg-gray-100 disabled:cursor-not-allowed ${
+              className={`form-input disabled:surface-secondary disabled:cursor-not-allowed ${
                 validation 
                   ? validation.valid 
                     ? 'border-green-500 bg-green-50 focus:ring-green-500' 
@@ -198,7 +198,7 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
                 {validation.valid ? (
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <span className="text-green-800 font-medium">Model found</span>
-                    <div className="flex gap-2 text-xs text-gray-600">
+                    <div className="flex gap-2 text-xs text-body">
                       {validation.downloads !== undefined && (
                         <span className="badge badge-gray">{formatNumber(validation.downloads)} downloads</span>
                       )}
@@ -221,13 +221,13 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
           <div>
             <label className="form-label">Revision</label>
             {isLoadingRevisions ? (
-              <p className="text-sm text-gray-500">Loading revisions...</p>
+              <p className="text-sm text-dim">Loading revisions...</p>
             ) : revisions && revisions.branches.length > 0 ? (
               <select
                 value={revision}
                 onChange={(e) => setRevision(e.target.value)}
                 disabled={isStarting || isStarted}
-                className="form-select disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="form-select disabled:surface-secondary disabled:cursor-not-allowed"
               >
                 <optgroup label="Branches">
                   {revisions.branches.map(branch => (
@@ -249,7 +249,7 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
                 onChange={(e) => setRevision(e.target.value)}
                 placeholder="main"
                 disabled={isStarting || isStarted}
-                className="form-input disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="form-input disabled:surface-secondary disabled:cursor-not-allowed"
               />
             )}
             <p className="form-hint">

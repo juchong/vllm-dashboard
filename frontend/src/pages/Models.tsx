@@ -1,27 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
-import axios from 'axios'
+import api from '../services/api'
 import ModelList from '../components/models/ModelList'
 import ModelDownload from '../components/models/ModelDownload'
 import ModelConfigEditor from '../components/models/ModelConfigEditor'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import Alert from '../components/common/Alert'
-import { ModelInfo, ConfigPair } from '../types/models'
+import { ModelInfo } from '../types/models'
 
 interface ActiveDownload {
   id: string
   model_name: string
-  status: 'pending' | 'downloading' | 'completed' | 'failed'
+  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'cancelled' | 'resumable'
   progress: string
   error: string | null
   started_at: string
   downloaded_size: number
   downloaded_size_human: string
+  expected_size: number | null
+  expected_size_human: string | null
+  progress_pct: number | null
+  speed_bps: number
+  speed_human: string | null
+  eta_seconds: number | null
   elapsed_seconds: number
 }
 
 const Models = () => {
   const [models, setModels] = useState<ModelInfo[]>([])
-  const [configPairs, setConfigPairs] = useState<ConfigPair[]>([])
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelConfig, setModelConfig] = useState<any>(null)
   const [modelConfigPath, setModelConfigPath] = useState<string | null>(null)
@@ -30,12 +35,12 @@ const Models = () => {
   const [showDownload, setShowDownload] = useState(false)
   const [activeDownloads, setActiveDownloads] = useState<ActiveDownload[]>([])
   const pollIntervalRef = useRef<number | null>(null)
-  const prevDownloadCountRef = useRef<number>(0)
+  const prevTaskIdsRef = useRef<Set<string>>(new Set())
 
   const fetchModels = async () => {
     setLoading(true)
     try {
-      const response = await axios.get('/api/models/list')
+      const response = await api.get('/models/list')
       setModels(response.data.data)
     } catch (err) {
       setError('Failed to fetch models')
@@ -45,26 +50,23 @@ const Models = () => {
     }
   }
 
-  const fetchConfigPairs = async () => {
-    try {
-      const response = await axios.get('/api/config/pairs')
-      setConfigPairs(response.data.data)
-    } catch (err) {
-      console.error('Failed to fetch config pairs:', err)
-    }
-  }
-
   const fetchActiveDownloads = async () => {
     try {
-      const response = await axios.get('/api/models/download/active')
+      const response = await api.get('/models/download/active')
       const downloads = response.data.data as ActiveDownload[]
       setActiveDownloads(downloads)
       
-      // If a download just completed (count went down), refresh models list
-      if (downloads.length < prevDownloadCountRef.current) {
-        fetchModels()
+      const currentIds = new Set(downloads.map(d => d.id))
+      const prevIds = prevTaskIdsRef.current
+      
+      // If any previously-tracked task ID disappeared, a download completed
+      for (const id of prevIds) {
+        if (!currentIds.has(id)) {
+          fetchModels()
+          break
+        }
       }
-      prevDownloadCountRef.current = downloads.length
+      prevTaskIdsRef.current = currentIds
     } catch (err) {
       console.error('Failed to fetch active downloads:', err)
     }
@@ -72,7 +74,7 @@ const Models = () => {
 
   const fetchModelConfig = async (modelName: string) => {
     try {
-      const response = await axios.get(`/api/config/model/${modelName}`)
+      const response = await api.get(`/config/model/${modelName}`)
       const data = response.data.data || {}
       setModelConfig(data.config || {})
       setModelConfigPath(data.config_path || null)
@@ -92,7 +94,7 @@ const Models = () => {
     if (!confirm('Are you sure you want to cancel this download? Partial files will be deleted.')) return
     
     try {
-      await axios.post(`/api/models/download/cancel/${taskId}`)
+      await api.post(`/models/download/cancel/${taskId}`)
       await fetchActiveDownloads()
       await fetchModels()
     } catch (err: any) {
@@ -108,7 +110,7 @@ const Models = () => {
     setLoading(true)
     try {
       // Don't encode - FastAPI path parameter handles slashes natively
-      await axios.delete(`/api/models/${modelPath}`)
+      await api.delete(`/models/${modelPath}`)
       await fetchModels()
     } catch (err: any) {
       const detail = err.response?.data?.detail || 'Failed to delete model'
@@ -127,7 +129,7 @@ const Models = () => {
       const baseDir = oldPath.substring(0, oldPath.length - oldName.length - 1)
       const newPath = `${baseDir}/${newName}`
       
-      await axios.post('/api/models/rename', { old_path: oldPath, new_path: newPath })
+      await api.post('/models/rename', { old_path: oldPath, new_path: newPath })
       await fetchModels()
     } catch (err: any) {
       const detail = err.response?.data?.detail || 'Failed to rename model'
@@ -139,29 +141,8 @@ const Models = () => {
   }
 
   const handleSaveConfig = async (modelName: string, config: any) => {
-    setLoading(true)
-    try {
-      await axios.post('/api/config/save', { model_name: modelName, config })
-      await fetchModelConfig(modelName)
-    } catch (err) {
-      setError('Failed to save configuration')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleAssociateConfig = async (modelName: string, configPath: string) => {
-    setLoading(true)
-    try {
-      await axios.post('/api/config/associate', { model_name: modelName, config_path: configPath })
-      await fetchConfigPairs()
-    } catch (err) {
-      setError('Failed to associate configuration')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
+    await api.post('/config/save', { model_name: modelName, config })
+    await fetchModelConfig(modelName)
   }
 
   const formatElapsedTime = (seconds: number) => {
@@ -175,23 +156,30 @@ const Models = () => {
 
   useEffect(() => {
     fetchModels()
-    fetchConfigPairs()
     fetchActiveDownloads()
-    
-    // Poll for active downloads every 3 seconds
-    pollIntervalRef.current = window.setInterval(fetchActiveDownloads, 3000)
-    
+  }, [])
+
+  // Only poll when there are active downloads
+  useEffect(() => {
+    if (activeDownloads.length > 0) {
+      pollIntervalRef.current = window.setInterval(fetchActiveDownloads, 3000)
+    } else {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current)
       }
     }
-  }, [])
+  }, [activeDownloads.length > 0])
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Models</h1>
+        <h1 className="text-2xl font-bold text-heading">Models</h1>
         <button onClick={() => setShowDownload(true)} className="dashboard-button">Download Model</button>
       </div>
 
@@ -204,19 +192,22 @@ const Models = () => {
           </h2>
           <div className="space-y-2">
             {activeDownloads.map((download) => (
-              <div key={download.id} className="bg-white rounded-md p-3 border border-blue-100">
+              <div key={download.id} className="surface-primary rounded-md p-3 border border-blue-100">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="font-medium text-gray-900">{download.model_name}</span>
-                    <span className="text-xs text-gray-500 ml-2">({download.id})</span>
+                    <span className="font-medium text-heading">{download.model_name}</span>
+                    <span className="text-xs text-dim ml-2">({download.id})</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right text-sm">
                       <div className="text-blue-600 font-medium">
-                        {download.downloaded_size_human || '0 B'} downloaded
+                        {download.downloaded_size_human || '0 B'}
+                        {download.expected_size_human && ` / ${download.expected_size_human}`}
                       </div>
-                      <div className="text-gray-500 text-xs">
-                        {formatElapsedTime(download.elapsed_seconds)} elapsed
+                      <div className="text-dim text-xs space-x-2">
+                        <span>{formatElapsedTime(download.elapsed_seconds)}</span>
+                        {download.speed_human && <span>{download.speed_human}</span>}
+                        {download.eta_seconds != null && <span>ETA: {formatElapsedTime(download.eta_seconds)}</span>}
                       </div>
                     </div>
                     <button
@@ -228,9 +219,17 @@ const Models = () => {
                     </button>
                   </div>
                 </div>
-                <div className="text-sm text-gray-600 mt-2">
-                  {download.status === 'pending' ? 'Queued...' : 
-                   download.status === 'downloading' ? 'Downloading files from HuggingFace...' :
+                {download.progress_pct != null && (
+                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all"
+                      style={{ width: `${download.progress_pct}%` }}
+                    />
+                  </div>
+                )}
+                <div className="text-sm text-body mt-1">
+                  {download.status === 'pending' ? 'Queued...' :
+                   download.status === 'downloading' ? (download.progress_pct != null ? `${download.progress_pct}% complete` : 'Downloading...') :
                    download.progress}
                 </div>
                 {download.error && (
@@ -286,9 +285,7 @@ const Models = () => {
                 modelName={selectedModel}
                 config={modelConfig}
                 configPath={modelConfigPath}
-                pairs={configPairs}
                 onSave={handleSaveConfig}
-                onAssociate={handleAssociateConfig}
               />
             </div>
           </div>
