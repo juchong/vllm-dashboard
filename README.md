@@ -117,7 +117,7 @@ services:
 
 ### Model YAML
 
-Each config file has standard [vLLM engine args](https://docs.vllm.ai/en/latest/serving/engine_args.html) plus three optional dashboard fields:
+Each config file has standard [vLLM engine args](https://docs.vllm.ai/en/stable/configuration/engine_args/) plus three optional dashboard fields:
 
 ```yaml
 # vLLM args (any key from --help, written to active.yaml)
