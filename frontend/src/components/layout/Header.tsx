@@ -18,9 +18,8 @@ const Header = () => {
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
 
   return (
-    <header className="bg-card-bg border-b border-border-color px-6 py-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text-primary">vLLM Dashboard</h2>
+    <header className="bg-card-bg border-b border-border-color px-6 py-3">
+      <div className="flex items-center justify-end">
         <button
           onClick={toggleTheme}
           className="p-2 rounded-md text-text-secondary hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
