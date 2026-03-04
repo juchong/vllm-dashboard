@@ -44,6 +44,10 @@ class HuggingFaceService:
         """Download a model from Hugging Face Hub"""
         if not local_dir:
             local_dir = os.path.join(self.models_dir, model_name)
+        real_local = os.path.realpath(os.path.normpath(local_dir))
+        real_models = os.path.realpath(self.models_dir)
+        if not real_local.startswith(real_models):
+            raise ValueError("Invalid model name")
         
         try:
             # Create directory if it doesn't exist
@@ -223,13 +227,15 @@ class HuggingFaceService:
             if not os.path.exists(model_path):
                 raise Exception(f"Model path {model_path} does not exist")
             
-            # Safety check: only allow deletion within models directory
-            if not model_path.startswith(self.models_dir):
+            # Resolve symlinks to prevent path traversal
+            real_path = os.path.realpath(model_path)
+            real_models_dir = os.path.realpath(self.models_dir)
+            if not real_path.startswith(real_models_dir):
                 raise Exception(f"Cannot delete path outside models directory: {model_path}")
             
-            # Remove directory
+            # Remove directory (use real_path for actual deletion)
             import shutil
-            shutil.rmtree(model_path)
+            shutil.rmtree(real_path)
             
             return f"Model at {model_path} deleted successfully"
         except Exception as e:
@@ -247,18 +253,28 @@ class HuggingFaceService:
             if not os.path.exists(old_path):
                 raise Exception(f"Model path {old_path} does not exist")
             
-            # Safety check: only allow operations within models directory
-            if not old_path.startswith(self.models_dir):
+            # Resolve symlinks to prevent path traversal
+            real_old = os.path.realpath(old_path)
+            real_models_dir = os.path.realpath(self.models_dir)
+            if not real_old.startswith(real_models_dir):
                 raise Exception(f"Cannot rename path outside models directory: {old_path}")
-            if not new_path.startswith(self.models_dir):
+            # new_path may not exist yet; validate it stays under models_dir
+            try:
+                rel = os.path.relpath(new_path, self.models_dir)
+            except ValueError:
+                raise Exception(f"Cannot rename to path outside models directory: {new_path}")
+            if rel.startswith("..") or os.path.isabs(rel):
+                raise Exception(f"Cannot rename to path outside models directory: {new_path}")
+            real_new = os.path.realpath(os.path.join(real_models_dir, rel))
+            if not real_new.startswith(real_models_dir):
                 raise Exception(f"Cannot rename to path outside models directory: {new_path}")
             
             # Create parent directory if needed
-            new_parent = os.path.dirname(new_path)
+            new_parent = os.path.dirname(real_new)
             os.makedirs(new_parent, exist_ok=True)
             
             # Rename directory
-            os.rename(old_path, new_path)
+            os.rename(real_old, real_new)
             
             return f"Model renamed from {old_path} to {new_path}"
         except Exception as e:

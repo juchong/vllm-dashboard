@@ -2,16 +2,32 @@
 WebSocket endpoints for real-time updates
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, Optional
 import asyncio
 import json
 import logging
-from services.gpu_service import GPUService
+from typing import Dict, Optional
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from database import get_db
+from services.auth_service import AuthService
 from services.docker_service import DockerService
+from services.gpu_service import GPUService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _get_token_from_websocket(websocket: WebSocket) -> Optional[str]:
+    """Extract session token from WebSocket cookies."""
+    for name, value in websocket.scope.get("headers", []):
+        if name == b"cookie":
+            for part in value.decode().split(";"):
+                if "=" in part:
+                    k, v = part.strip().split("=", 1)
+                    if k.strip() == "session":
+                        return v.strip()
+    return None
 
 
 class ConnectionManager:
@@ -77,7 +93,7 @@ class ConnectionManager:
                 try:
                     await websocket.send_text(json.dumps({
                         "type": "error",
-                        "message": str(e)
+                        "message": "An error occurred"
                     }))
                 except:
                     pass
@@ -92,12 +108,26 @@ manager = ConnectionManager()
 
 @router.websocket("/updates")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time monitoring updates"""
+    """WebSocket endpoint for real-time monitoring updates. Requires authentication."""
+    token = _get_token_from_websocket(websocket)
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    db = next(get_db())
+    try:
+        auth_service = AuthService(db)
+        user = auth_service.verify_token(token)
+        if not user or not user.is_active:
+            await websocket.close(code=4001, reason="Invalid or expired token")
+            return
+    finally:
+        db.close()
+
     await manager.connect(websocket)
     monitoring_task: Optional[asyncio.Task] = None
-    
+
     try:
-        # Access app state through websocket.app.state
         gpu_service: GPUService = websocket.app.state.gpu_service
         docker_service: DockerService = websocket.app.state.docker_service
         monitoring_task = await manager.start_monitoring(websocket, gpu_service, docker_service)

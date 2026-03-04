@@ -172,9 +172,22 @@
 
   .form-input {
     @apply w-full rounded-md px-3 py-2 transition-colors
-           border border-gray-300 bg-white text-gray-900 placeholder-gray-400
-           focus:outline-none focus:ring-2 focus:ring-primary-color focus:border-transparent
-           dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-500;
+           border
+           focus:outline-none focus:ring-2 focus:ring-primary-color focus:border-transparent;
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #d1d5db;
+  }
+  .dark .form-input {
+    background-color: #1f2937 !important;
+    color: #f9fafb !important;
+    border-color: #4b5563 !important;
+  }
+  .form-input::placeholder {
+    color: #9ca3af !important;
+  }
+  .dark .form-input::placeholder {
+    color: #6b7280 !important;
   }
 
   .form-select {

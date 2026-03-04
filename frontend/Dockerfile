@@ -10,7 +10,7 @@ RUN npm install && npm cache clean --force
 
 # Build the application
 COPY . .
-RUN npm run build
+RUN npm run test && npm run build
 
 # Production image
 FROM nginx:alpine

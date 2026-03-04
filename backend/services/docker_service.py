@@ -2,12 +2,24 @@
 Docker service for container management
 """
 
+import re
 import docker
 from docker.errors import DockerException, NotFound, APIError
 from typing import Dict, Any, Optional, List
 import subprocess
 import os
 from pathlib import Path
+
+# Whitelist: only allow vLLM-related container names (alphanumeric, hyphen)
+ALLOWED_CONTAINER_PATTERN = re.compile(r"^vllm(-[a-zA-Z0-9]+)*$")
+
+
+def _validate_container_name(name: str) -> None:
+    """Reject container names that could target arbitrary containers."""
+    if not name or not ALLOWED_CONTAINER_PATTERN.match(name):
+        raise ValueError("Invalid container name")
+    if "dashboard" in name or "proxy" in name:
+        raise ValueError("Cannot operate on dashboard or proxy containers")
 
 
 class DockerService:
@@ -25,6 +37,7 @@ class DockerService:
     
     def start_container(self, container_name: str, profile: Optional[str] = None) -> str:
         """Start a container using docker compose"""
+        _validate_container_name(container_name)
         cmd = [
             "docker", "compose",
             "-p", "ai",
@@ -51,6 +64,7 @@ class DockerService:
     
     def stop_container(self, container_name: str) -> str:
         """Stop a container"""
+        _validate_container_name(container_name)
         try:
             container = self.client.containers.get(container_name)
             container.stop()
@@ -62,6 +76,7 @@ class DockerService:
     
     def restart_container(self, container_name: str) -> str:
         """Restart a container"""
+        _validate_container_name(container_name)
         try:
             container = self.client.containers.get(container_name)
             container.restart()
@@ -123,6 +138,8 @@ class DockerService:
     
     def get_container_logs(self, container_name: str, tail: int = 100) -> str:
         """Get container logs"""
+        _validate_container_name(container_name)
+        tail = max(1, min(tail, 10000))
         try:
             container = self.client.containers.get(container_name)
             logs = container.logs(tail=tail, stdout=True, stderr=True, timestamps=True)
@@ -134,6 +151,8 @@ class DockerService:
     
     def stream_container_logs(self, container_name: str, tail: int = 100):
         """Stream container logs in real-time"""
+        _validate_container_name(container_name)
+        tail = max(1, min(tail, 10000))
         try:
             container = self.client.containers.get(container_name)
             logs = container.logs(

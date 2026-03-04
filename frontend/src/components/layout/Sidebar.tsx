@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   HomeIcon,
   CpuChipIcon,
@@ -8,7 +8,9 @@ import {
   Cog8ToothIcon,
   SunIcon,
   MoonIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
+import authService from '../../services/auth'
 
 function getInitialTheme(): 'dark' | 'light' {
   const stored = localStorage.getItem('theme')
@@ -26,6 +28,18 @@ const navItems = [
 
 const Sidebar = () => {
   const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme)
+  const [user, setUser] = useState(authService.getState().user)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const unsub = authService.subscribe((state) => setUser(state.user))
+    return unsub
+  }, [])
+
+  const handleLogout = async () => {
+    await authService.logout()
+    navigate('/login')
+  }
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -62,6 +76,21 @@ const Sidebar = () => {
           )
         })}
       </nav>
+      <div className="p-4 border-t border-gray-700">
+        {user && (
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-sm text-gray-400 truncate" title={user.username}>{user.username}</span>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-md transition-colors"
+              title="Log out"
+            >
+              <ArrowRightOnRectangleIcon className="w-5 h-5" />
+              Log out
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

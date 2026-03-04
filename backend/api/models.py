@@ -2,9 +2,13 @@
 Model management API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+
+from deps import get_current_user
+from models.auth_models import User
 from services.hf_service import HuggingFaceService
 
 router = APIRouter()
@@ -21,7 +25,7 @@ class ModelRenameRequest(BaseModel):
 
 
 @router.post("/download")
-async def download_model(request: Request, model_data: ModelDownloadRequest):
+async def download_model(request: Request, model_data: ModelDownloadRequest, current_user: User = Depends(get_current_user)):
     """Start a background model download and return task ID"""
     download_manager = request.app.state.download_manager
     hf_service: HuggingFaceService = request.app.state.hf_service
@@ -48,12 +52,14 @@ async def download_model(request: Request, model_data: ModelDownloadRequest):
         }
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")
 
 
 @router.get("/download/status/{task_id}")
-async def get_download_status(request: Request, task_id: str):
+async def get_download_status(request: Request, task_id: str, current_user: User = Depends(get_current_user)):
     """Get status of a download task"""
     download_manager = request.app.state.download_manager
     status = download_manager.get_status(task_id)
@@ -63,7 +69,7 @@ async def get_download_status(request: Request, task_id: str):
 
 
 @router.get("/download/active")
-async def get_active_downloads(request: Request):
+async def get_active_downloads(request: Request, current_user: User = Depends(get_current_user)):
     """Get all active downloads"""
     download_manager = request.app.state.download_manager
     downloads = download_manager.get_active_downloads()
@@ -71,7 +77,7 @@ async def get_active_downloads(request: Request):
 
 
 @router.get("/download/all")
-async def get_all_downloads(request: Request):
+async def get_all_downloads(request: Request, current_user: User = Depends(get_current_user)):
     """Get all downloads including completed/failed/resumable"""
     download_manager = request.app.state.download_manager
     downloads = download_manager.get_all_downloads()
@@ -79,7 +85,7 @@ async def get_all_downloads(request: Request):
 
 
 @router.post("/download/cancel/{task_id}")
-async def cancel_download(request: Request, task_id: str):
+async def cancel_download(request: Request, task_id: str, current_user: User = Depends(get_current_user)):
     """Cancel a download task"""
     download_manager = request.app.state.download_manager
     success = download_manager.cancel_download(task_id)
@@ -89,7 +95,7 @@ async def cancel_download(request: Request, task_id: str):
 
 
 @router.post("/download/resume/{task_id}")
-async def resume_download(request: Request, task_id: str):
+async def resume_download(request: Request, task_id: str, current_user: User = Depends(get_current_user)):
     """Resume a previously interrupted download"""
     download_manager = request.app.state.download_manager
     success = download_manager.resume_download(task_id)
@@ -99,29 +105,33 @@ async def resume_download(request: Request, task_id: str):
 
 
 @router.get("/list")
-async def list_models(request: Request):
+async def list_models(request: Request, current_user: User = Depends(get_current_user)):
     """List all downloaded models"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         models = hf_service.list_models()
         return {"status": "success", "data": models}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")
 
 
 @router.delete("/{model_path:path}")
-async def delete_model(request: Request, model_path: str):
+async def delete_model(request: Request, model_path: str, current_user: User = Depends(get_current_user)):
     """Delete a model"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         result = hf_service.delete_model(model_path)
         return {"status": "success", "message": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")
 
 
 @router.post("/rename")
-async def rename_model(request: Request, rename_data: ModelRenameRequest):
+async def rename_model(request: Request, rename_data: ModelRenameRequest, current_user: User = Depends(get_current_user)):
     """Rename a model"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
@@ -130,27 +140,33 @@ async def rename_model(request: Request, rename_data: ModelRenameRequest):
             new_path=rename_data.new_path,
         )
         return {"status": "success", "message": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")
 
 
 @router.get("/validate/{model_name:path}")
-async def validate_model(request: Request, model_name: str):
+async def validate_model(request: Request, model_name: str, current_user: User = Depends(get_current_user)):
     """Validate a model name exists on HuggingFace"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         result = hf_service.validate_model_name(model_name)
         return {"status": "success", "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")
 
 
 @router.get("/revisions/{model_name:path}")
-async def get_model_revisions(request: Request, model_name: str):
+async def get_model_revisions(request: Request, model_name: str, current_user: User = Depends(get_current_user)):
     """Get available revisions for a model"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         result = hf_service.get_model_revisions(model_name)
         return {"status": "success", "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred")

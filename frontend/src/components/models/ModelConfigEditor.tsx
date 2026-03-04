@@ -115,7 +115,7 @@ trust_remote_code: true
 
   const validateYaml = (yamlStr: string): { valid: boolean; error?: string; parsed?: any } => {
     try {
-      const parsed = yaml.load(yamlStr)
+      const parsed = yaml.load(yamlStr, { schema: yaml.JSON_SCHEMA })
       return { valid: true, parsed }
     } catch (e: any) {
       const errorMsg = e.message || 'Invalid YAML syntax'

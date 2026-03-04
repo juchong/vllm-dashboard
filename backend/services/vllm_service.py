@@ -3,6 +3,7 @@ vLLM service for managing the vLLM inference server
 """
 
 import os
+import re
 import json
 import shutil
 import logging
@@ -35,11 +36,16 @@ class VLLMService:
                         with open(filepath, 'r') as f:
                             config = yaml.safe_load(f)
                         
+                        try:
+                            model_type = self._detect_model_type(config)
+                        except ValueError:
+                            logger.warning(f"Skipping config {filename}: invalid model_type")
+                            continue
                         configs.append({
                             "filename": filename,
                             "name": config.get("served_model_name", filename),
                             "model": config.get("model", "unknown"),
-                            "model_type": self._detect_model_type(config),
+                            "model_type": model_type,
                             "max_model_len": config.get("max_model_len", 0),
                             "tensor_parallel_size": config.get("tensor_parallel_size", 1),
                         })
@@ -87,12 +93,38 @@ class VLLMService:
             logger.error(f"Failed to get active config: {e}")
             raise
     
+    def _validate_config_filename(self, name: str) -> None:
+        """Reject path traversal and invalid filenames."""
+        if not name or ".." in name or "/" in name or "\\" in name:
+            raise ValueError("Invalid config filename")
+        if not name.endswith(".yaml") or name == "active.yaml":
+            raise ValueError("Invalid config filename")
+
+    def _validate_vllm_image(self, image: str | None) -> str | None:
+        """Validate Docker image name to prevent injection."""
+        if not image or not image.strip():
+            return None
+        img = image.strip()
+        if len(img) > 256:
+            raise ValueError("Image name too long")
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._\-/:]*$", img):
+            raise ValueError("Invalid image name")
+        if any(c in img for c in (";", "$", "`", "|", "&", "<", ">", "\n", "\r")):
+            raise ValueError("Invalid image name")
+        return img
+
     def switch_config(self, config_filename: str) -> Dict[str, Any]:
         """Switch to a different configuration"""
+        self._validate_config_filename(config_filename)
         config_path = os.path.join(self.configs_dir, config_filename)
         
         if not os.path.exists(config_path):
             raise ValueError(f"Config file not found: {config_filename}")
+        
+        real_path = os.path.realpath(config_path)
+        real_configs_dir = os.path.realpath(self.configs_dir)
+        if not real_path.startswith(real_configs_dir):
+            raise ValueError("Invalid config filename")
         
         try:
             # Read the new config
@@ -101,7 +133,7 @@ class VLLMService:
             
             model_type = self._detect_model_type(config)
             env_overrides = config.get("env_overrides", {})
-            vllm_image = config.get("vllm_image")
+            vllm_image = self._validate_vllm_image(config.get("vllm_image"))
             
             # Process config: convert nested dicts to JSON strings, strip dashboard-only fields
             processed_config = self._process_config_for_vllm(config)
@@ -255,9 +287,14 @@ class VLLMService:
     
     def get_env_preview(self, config_filename: str) -> Dict[str, Any]:
         """Get a layered preview of env vars that would be set for a given config."""
+        self._validate_config_filename(config_filename)
         config_path = os.path.join(self.configs_dir, config_filename)
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file not found: {config_filename}")
+        real_path = os.path.realpath(config_path)
+        real_configs_dir = os.path.realpath(self.configs_dir)
+        if not real_path.startswith(real_configs_dir):
+            raise ValueError("Invalid config filename")
         
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -317,10 +354,15 @@ class VLLMService:
         
         return processed
     
+    ALLOWED_MODEL_TYPES = frozenset({"dense", "moe_fp8", "moe_fp4"})
+
     def _detect_model_type(self, config: Dict[str, Any]) -> str:
         """Detect the model type from config. Prefers explicit model_type field, falls back to heuristic."""
         if "model_type" in config:
-            return config["model_type"]
+            mt = config["model_type"]
+            if mt not in self.ALLOWED_MODEL_TYPES:
+                raise ValueError("Invalid model_type")
+            return mt
         
         model = config.get("model", "").lower()
         
@@ -407,7 +449,12 @@ class VLLMService:
         if not image:
             active_image_path = os.path.join(self.configs_dir, "active.image")
             if os.path.exists(active_image_path):
-                image = open(active_image_path).read().strip()
+                raw = open(active_image_path).read().strip()
+                if raw:
+                    try:
+                        image = self._validate_vllm_image(raw)
+                    except ValueError:
+                        image = None
         if image:
             env["VLLM_IMAGE"] = image
             logger.info(f"Using vLLM image: {image}")

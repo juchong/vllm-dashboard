@@ -70,6 +70,48 @@ class ConfigService:
 
         return {"config": None, "config_path": exact_path}
 
+    def get_config_templates(self) -> List[Dict[str, Any]]:
+        """Return available configuration templates."""
+        return [
+            {"name": "dense", "description": "Standard dense model"},
+            {"name": "moe_fp8", "description": "MoE model with FP8"},
+            {"name": "moe_fp4", "description": "MoE model with FP4"},
+        ]
+
+    def associate_config(self, model_name: str, config_path: str) -> str:
+        """Associate a model with a configuration file. Validates config_path is within config_dir."""
+        raw = config_path.strip()
+        if not raw:
+            raise ValueError("Config path cannot be empty")
+        config_path = os.path.normpath(raw)
+        if not os.path.isabs(config_path):
+            config_path = os.path.join(self.config_dir, config_path)
+        real_config_dir = os.path.realpath(self.config_dir)
+        try:
+            real_path = os.path.realpath(config_path)
+        except OSError:
+            raise ValueError(f"Config path does not exist: {config_path}")
+        if not os.path.exists(real_path):
+            raise ValueError(f"Config path does not exist: {config_path}")
+        if not real_path.startswith(real_config_dir):
+            raise ValueError(f"Config path must be within {self.config_dir}")
+        if not os.path.isfile(real_path) or not real_path.endswith((".yaml", ".yml")):
+            raise ValueError("Config path must be a YAML file")
+        # Update the config file's model field to associate with model_name
+        try:
+            with open(real_path, "r") as f:
+                config = yaml.safe_load(f)
+            if not config:
+                config = {}
+            config["model"] = model_name
+            short_name = model_name.split("/")[-1] if "/" in model_name else model_name
+            config["served_model_name"] = config.get("served_model_name", short_name)
+            with open(real_path, "w") as f:
+                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        except (yaml.YAMLError, IOError, OSError) as e:
+            raise ValueError(f"Failed to update config: {e}")
+        return f"Associated {model_name} with {config_path}"
+
     def list_config_pairs(self) -> List[Dict[str, str]]:
         """List all configs with their model names by scanning YAML files."""
         pairs = []

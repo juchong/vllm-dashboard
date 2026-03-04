@@ -20,6 +20,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _validate_model_path(models_dir: str, model_name: str) -> None:
+    """Ensure model_name does not escape models_dir (path traversal)."""
+    if not model_name or ".." in model_name:
+        raise ValueError("Invalid model name")
+    try:
+        local_dir = os.path.join(models_dir, model_name)
+        real_local = os.path.realpath(os.path.normpath(local_dir))
+        real_models = os.path.realpath(models_dir)
+        if not real_local.startswith(real_models):
+            raise ValueError("Invalid model name")
+    except (ValueError, OSError):
+        raise ValueError("Invalid model name")
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -61,12 +75,27 @@ class DownloadTask:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'DownloadTask':
+    def from_dict(cls, d: Dict[str, Any], models_dir: Optional[str] = None) -> Optional['DownloadTask']:
+        """Deserialize from dict. Returns None if data is invalid (e.g. poisoned)."""
+        task_id = d.get("id")
+        if not task_id:
+            return None
+        try:
+            status_val = d.get("status", "pending")
+            status = DownloadStatus(status_val) if status_val in [s.value for s in DownloadStatus] else DownloadStatus.FAILED
+        except (ValueError, TypeError):
+            status = DownloadStatus.FAILED
+        model_name = d.get("model_name", "")
+        if models_dir and model_name:
+            try:
+                _validate_model_path(models_dir, model_name)
+            except ValueError:
+                return None
         return cls(
-            id=d["id"],
-            model_name=d["model_name"],
+            id=str(task_id),
+            model_name=model_name,
             revision=d.get("revision"),
-            status=DownloadStatus(d.get("status", "pending")),
+            status=status,
             progress=d.get("progress", ""),
             error=d.get("error"),
             started_at=d.get("started_at", ""),
@@ -113,8 +142,11 @@ class DownloadManager:
         try:
             with open(self._state_file, 'r') as f:
                 data = json.load(f)
+            models_dir = getattr(self.hf_service, "models_dir", None) or os.environ.get("VLLM_MODELS_DIR", "/models")
             for task_dict in data.get("tasks", []):
-                task = DownloadTask.from_dict(task_dict)
+                task = DownloadTask.from_dict(task_dict, models_dir=models_dir)
+                if task is None:
+                    continue
                 if task.status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING):
                     task.status = DownloadStatus.RESUMABLE
                     task.progress = "Interrupted — can be resumed"
@@ -180,6 +212,7 @@ class DownloadManager:
     def start_download(self, model_name: str, revision: Optional[str] = None,
                        expected_size: Optional[int] = None) -> str:
         """Start a background download and return task ID."""
+        _validate_model_path(self.hf_service.models_dir, model_name)
         with self._lock:
             for existing in self.downloads.values():
                 if existing.model_name == model_name and existing.status in (
@@ -224,6 +257,10 @@ class DownloadManager:
         """Resume a previously interrupted download."""
         task = self.downloads.get(task_id)
         if not task or task.status != DownloadStatus.RESUMABLE:
+            return False
+        try:
+            _validate_model_path(self.hf_service.models_dir, task.model_name)
+        except ValueError:
             return False
 
         with self._lock:
