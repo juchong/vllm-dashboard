@@ -12,7 +12,7 @@ import Alert from '../components/common/Alert'
 interface UserItem {
     id: number
     username: string
-    role: string
+    role: 'viewer' | 'operator' | 'admin'
     is_active: boolean
     created_at?: string | null
 }
@@ -34,11 +34,16 @@ const Settings = () => {
     const [users, setUsers] = useState<UserItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+    const [successMsg, setSuccessMsg] = useState('')
     const [newUser, setNewUser] = useState({
         username: '',
         password: '',
-        role: 'admin',
-        is_active: true
+        role: 'viewer' as 'viewer' | 'operator' | 'admin',
+    })
+    const [passwordForm, setPasswordForm] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
     })
 
     useEffect(() => {
@@ -85,8 +90,8 @@ const Settings = () => {
         }
         setError('')
         try {
-            await authService.createUser(newUser.username, newUser.password)
-            setNewUser({ username: '', password: '', role: 'admin', is_active: true })
+            await authService.createUser(newUser.username, newUser.password, newUser.role)
+            setNewUser({ username: '', password: '', role: 'viewer' })
             await loadUsers()
             setError('')
         } catch (err: unknown) {
@@ -146,6 +151,37 @@ const Settings = () => {
         }
     }
 
+    const handleChangePassword = async () => {
+        setError('')
+        setSuccessMsg('')
+        
+        if (!passwordForm.currentPassword) {
+            setError('Current password is required')
+            return
+        }
+        if (!passwordForm.newPassword || passwordForm.newPassword.length < 8) {
+            setError('New password must be at least 8 characters')
+            return
+        }
+        if (new TextEncoder().encode(passwordForm.newPassword).length > 72) {
+            setError('Password must be at most 72 bytes')
+            return
+        }
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+            setError('New passwords do not match')
+            return
+        }
+        
+        try {
+            await authService.changePassword(passwordForm.currentPassword, passwordForm.newPassword)
+            setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+            setSuccessMsg('Password changed successfully')
+            setTimeout(() => setSuccessMsg(''), 5000)
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to change password')
+        }
+    }
+
     if (loading) {
         return (
             <div className="space-y-6">
@@ -162,7 +198,51 @@ const Settings = () => {
         <div className="space-y-6">
             <h1 className="text-2xl font-bold text-heading">Settings</h1>
             
+            {successMsg && <Alert type="success">{successMsg}</Alert>}
+            {error && <Alert type="error">{error}</Alert>}
+            
             <div className="space-y-6">
+                {/* Change Password - available to all users */}
+                <div className="dashboard-card">
+                    <h2 className="text-lg font-semibold text-heading mb-4">Change Password</h2>
+                    <p className="text-sm text-dim mb-4">Update your account password</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="form-label mb-2">Current Password</label>
+                            <input
+                                type="password"
+                                className="form-input"
+                                value={passwordForm.currentPassword}
+                                onChange={(e) => setPasswordForm({...passwordForm, currentPassword: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="form-label mb-2">New Password</label>
+                            <input
+                                type="password"
+                                className="form-input"
+                                value={passwordForm.newPassword}
+                                onChange={(e) => setPasswordForm({...passwordForm, newPassword: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="form-label mb-2">Confirm New Password</label>
+                            <input
+                                type="password"
+                                className="form-input"
+                                value={passwordForm.confirmPassword}
+                                onChange={(e) => setPasswordForm({...passwordForm, confirmPassword: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                    <button
+                        className="dashboard-button mt-4"
+                        onClick={handleChangePassword}
+                    >
+                        Change Password
+                    </button>
+                </div>
+
                 <div className="dashboard-card">
                     <h2 className="text-lg font-semibold text-heading mb-4">Authentication Settings</h2>
                     <div className="space-y-4">
@@ -251,6 +331,18 @@ const Settings = () => {
                                         onChange={(e) => setNewUser({...newUser, password: e.target.value})}
                                     />
                                 </div>
+                                <div>
+                                    <label className="form-label mb-2">Role</label>
+                                    <select
+                                        className="form-input"
+                                        value={newUser.role}
+                                        onChange={(e) => setNewUser({...newUser, role: e.target.value as 'viewer' | 'operator' | 'admin'})}
+                                    >
+                                        <option value="viewer">viewer</option>
+                                        <option value="operator">operator</option>
+                                        <option value="admin">admin</option>
+                                    </select>
+                                </div>
                             </div>
                             <button
                                 className="dashboard-button mt-3"
@@ -305,13 +397,12 @@ const Settings = () => {
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            ))}
+                                            )                                            )}
                                         </tbody>
                                     </table>
                                 </div>
                             )}
                         </div>
-                        {error && <Alert type="error">{error}</Alert>}
                     </div>
                 </div>
             </div>

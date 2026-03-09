@@ -26,7 +26,7 @@ interface AuthState {
 interface AuthUser {
     id: number;
     username: string;
-    role: string;
+    role: 'viewer' | 'operator' | 'admin';
     is_active: boolean;
 }
 
@@ -126,27 +126,13 @@ class AuthService {
     }
 
     /**
-     * Logout
-     * @returns - True if logout succeeded
+     * Logout - optimistic: clears state immediately, revokes token in background.
+     * @returns - True (always, for instant UI response)
      */
-    async logout(): Promise<boolean> {
-        try {
-            this.setState({ loading: true, error: null });
-            await AuthAPI.logout();
-            // Cookie is cleared by server
-            
-            this.setState({
-                isAuthenticated: false,
-                user: null,
-                loading: false,
-            });
-            
-            return true;
-        } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : 'Logout failed';
-            this.setState({ loading: false, error: msg });
-            return false;
-        }
+    logout(): boolean {
+        this.setState({ isAuthenticated: false, user: null, error: null });
+        AuthAPI.logout().catch(() => { /* revoke in background; state already cleared */ });
+        return true;
     }
 
     /**
@@ -192,9 +178,9 @@ class AuthService {
      * @param password - Password
      * @returns - Created user
      */
-    async createUser(username: string, password: string): Promise<AuthUser> {
+    async createUser(username: string, password: string, role: 'viewer' | 'operator' | 'admin'): Promise<AuthUser> {
         try {
-            const user = await AuthAPI.createUser(username, password);
+            const user = await AuthAPI.createUser(username, password, role);
             return user;
         } catch (error: unknown) {
             const msg = axios.isAxiosError(error) ? error.response?.data?.detail : 'Failed to create user';
@@ -209,7 +195,7 @@ class AuthService {
      * @param isActive - Active status
      * @returns - Updated user
      */
-    async updateUser(userId: number, role: string, isActive: boolean): Promise<AuthUser> {
+    async updateUser(userId: number, role: 'viewer' | 'operator' | 'admin', isActive: boolean): Promise<AuthUser> {
         try {
             const user = await AuthAPI.updateUser(userId, role, isActive);
             return user;
@@ -261,6 +247,20 @@ class AuthService {
         } catch (error: unknown) {
             const msg = axios.isAxiosError(error) ? error.response?.data?.detail : 'Failed to update auth configuration';
             throw new Error(msg || 'Failed to update auth configuration');
+        }
+    }
+
+    /**
+     * Change current user's password
+     * @param currentPassword - Current password
+     * @param newPassword - New password
+     */
+    async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+        try {
+            await AuthAPI.changePassword(currentPassword, newPassword);
+        } catch (error: unknown) {
+            const msg = axios.isAxiosError(error) ? error.response?.data?.detail : 'Failed to change password';
+            throw new Error(msg || 'Failed to change password');
         }
     }
 }

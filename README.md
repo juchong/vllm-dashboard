@@ -115,6 +115,13 @@ services:
 
 ## Configuration
 
+### Production Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `WS_ALLOWED_ORIGINS` | Comma-separated origins allowed for WebSocket connections. **Must be set in production** to match your frontend URL(s) (e.g. `https://vllm-dashboard.example.com`). Falls back to `CORS_ORIGINS` when unset. | `http://localhost:8080,http://localhost:5173` |
+| `CORS_ORIGINS` | Comma-separated CORS origins for HTTP API. | See `main.py` |
+
 ### Model YAML
 
 Each config file has standard [vLLM engine args](https://docs.vllm.ai/en/stable/configuration/engine_args/) plus three optional dashboard fields:

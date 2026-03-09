@@ -38,6 +38,12 @@ const ContainerLogs = ({ containerName, onClose }: ContainerLogsProps) => {
   }, [fetchLogs])
 
   useEffect(() => {
+    if (!loading && logs) {
+      logsEndRef.current?.scrollIntoView({ behavior: 'auto' })
+    }
+  }, [loading, logs])
+
+  useEffect(() => {
     if (autoRefresh) {
       intervalRef.current = window.setInterval(fetchLogs, 3000)
     } else if (intervalRef.current) {

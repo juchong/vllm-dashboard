@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import useMonitoring from '../components/hooks/useMonitoring'
+import { useMonitoringContext } from '../contexts/MonitoringContext'
 import ContainerLogs from '../components/containers/ContainerLogs'
 import GPUMonitor from '../components/monitoring/GPUMonitor'
 import SystemStats from '../components/monitoring/SystemStats'
@@ -7,7 +7,7 @@ import ConfigSwitcher from '../components/vllm/ConfigSwitcher'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
 const Dashboard = () => {
-  const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoring()
+  const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoringContext()
   const [showLogs, setShowLogs] = useState(false)
   const [selectedContainer, setSelectedContainer] = useState('')
 
@@ -17,8 +17,8 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-2">
         <h1 className="text-2xl font-bold text-heading">Dashboard</h1>
         <div className="flex items-center gap-3">
           <button 
@@ -36,14 +36,14 @@ const Dashboard = () => {
       {loading && <LoadingSpinner message="Connecting to monitoring..." />}
       {error && <div className="alert alert-error">Error: {error}</div>}
 
-      {/* Model Configuration Switcher */}
-      <ConfigSwitcher />
-
       {/* GPU and System Monitoring */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <GPUMonitor metrics={gpuMetrics} />
         {systemMetrics && <SystemStats metrics={systemMetrics} />}
       </div>
+
+      {/* Model Configuration Switcher */}
+      <ConfigSwitcher />
 
       {showLogs && (
         <ContainerLogs 

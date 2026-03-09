@@ -36,8 +36,8 @@ const Sidebar = () => {
     return unsub
   }, [])
 
-  const handleLogout = async () => {
-    await authService.logout()
+  const handleLogout = () => {
+    authService.logout()
     navigate('/login')
   }
 

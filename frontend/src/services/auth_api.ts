@@ -41,7 +41,7 @@ interface TokenRefreshResponse {
 interface CurrentUser {
     id: number;
     username: string;
-    role: string;
+    role: 'viewer' | 'operator' | 'admin';
     is_active: boolean;
 }
 
@@ -61,7 +61,7 @@ interface AuthConfig {
 interface User {
     id: number;
     username: string;
-    role: string;
+    role: 'viewer' | 'operator' | 'admin';
     is_active: boolean;
 }
 
@@ -125,8 +125,8 @@ const AuthAPI = {
      * @param password - Password
      * @returns - Created user
      */
-    createUser: async (username: string, password: string): Promise<User> => {
-        const response = await api.post('/auth/users', { username, password });
+    createUser: async (username: string, password: string, role: 'viewer' | 'operator' | 'admin'): Promise<User> => {
+        const response = await api.post('/auth/users', { username, password, role });
         return response.data as User;
     },
     
@@ -137,7 +137,7 @@ const AuthAPI = {
      * @param isActive - Active status
      * @returns - Updated user
      */
-    updateUser: async (userId: number, role: string, isActive: boolean): Promise<User> => {
+    updateUser: async (userId: number, role: 'viewer' | 'operator' | 'admin', isActive: boolean): Promise<User> => {
         const response = await api.put(`/auth/users/${userId}`, { role, is_active: isActive });
         return response.data as User;
     },
@@ -168,6 +168,20 @@ const AuthAPI = {
      */
     updateAuthConfig: async (config: Partial<AuthConfig>): Promise<{ message: string }> => {
         const response = await api.put('/auth/config', config);
+        return response.data as { message: string };
+    },
+
+    /**
+     * Change current user's password
+     * @param currentPassword - Current password
+     * @param newPassword - New password
+     * @returns - Success message
+     */
+    changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
+        const response = await api.post('/auth/password', {
+            current_password: currentPassword,
+            new_password: newPassword,
+        });
         return response.data as { message: string };
     }
 };

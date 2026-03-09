@@ -260,14 +260,6 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
 
         {/* Actions */}
         <div className="modal-footer">
-          <button 
-            onClick={onClose}
-            disabled={isStarting}
-            className="dashboard-button-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isStarted ? 'Close' : 'Cancel'}
-          </button>
-          
           {isError ? (
             <button 
               onClick={handleRetry}
@@ -275,10 +267,10 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
             >
               Try Again
             </button>
-          ) : (
+          ) : !isStarted ? (
             <button 
               onClick={handleDownload}
-              disabled={isStarting || !modelName.trim() || !validation?.valid || isStarted}
+              disabled={isStarting || !modelName.trim() || !validation?.valid}
               className="dashboard-button disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isStarting ? (
@@ -286,13 +278,11 @@ const ModelDownload = ({ onSuccess, onClose }: ModelDownloadProps) => {
                   <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
                   Starting...
                 </span>
-              ) : isStarted ? (
-                'Started'
               ) : (
                 'Download Model'
               )}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

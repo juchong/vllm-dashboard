@@ -8,6 +8,7 @@ All users are considered administrators with the same permissions.
 import logging
 import os
 import re
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -16,7 +17,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
-from models.auth_models import AuthConfig, Token, User, UserSession
+from models.auth_models import AuthConfig, Token, User
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 480
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{3,32}$")
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 72  # bcrypt limit
-ALLOWED_ROLES = frozenset({"admin"})
+ALLOWED_ROLES = frozenset({"viewer", "operator", "admin"})
+ROLE_RANK = {"viewer": 1, "operator": 2, "admin": 3}
 AUTH_CONFIG_BOUNDS = {
     "max_failed_attempts": (1, 20),
     "lockout_minutes": (1, 1440),
@@ -81,15 +83,22 @@ class AuthService:
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        to_encode.update({"exp": expire})
-        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+            cfg = self.get_auth_config()
+            expire = datetime.utcnow() + timedelta(hours=cfg["token_expires_hours"])
+        jti = secrets.token_urlsafe(24)
+        to_encode.update({"exp": expire, "jti": jti})
+        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        self._store_token_jti(to_encode.get("sub"), jti, expire)
+        return token
 
     def verify_token(self, token: str) -> Optional[User]:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             username: str = payload.get("sub")
-            if username is None:
+            jti: str = payload.get("jti")
+            if username is None or not jti:
+                return None
+            if self._is_token_revoked(jti):
                 return None
             return self.get_user(username)
         except JWTError:
@@ -103,6 +112,8 @@ class AuthService:
 
     def authenticate(self, username: str, password: str) -> Optional[User]:
         config = self.get_auth_config()
+        if not config.get("enabled", True):
+            raise HTTPException(status_code=403, detail="Authentication is disabled")
         user = self.get_user(username)
         if user and user.login_failed_attempts >= config.get("max_failed_attempts", 5):
             lockout_min = config.get("lockout_minutes", 15)
@@ -126,6 +137,9 @@ class AuthService:
         return None
 
     def get_current_user(self, request: Request) -> User:
+        config = self.get_auth_config()
+        if not config.get("enabled", True):
+            raise HTTPException(status_code=403, detail="Authentication is disabled")
         token = request.cookies.get("session")
         if not token:
             auth_header = request.headers.get("Authorization")
@@ -147,24 +161,26 @@ class AuthService:
         if not token:
             return True
         try:
-            auth_token = self.db.query(Token).filter(Token.token == token).first()
-            if auth_token:
-                auth_token.invalidated_at = datetime.utcnow()
-                self.db.commit()
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+            jti = payload.get("jti")
+            if jti:
+                self._revoke_token_jti(jti)
             return True
         except Exception as e:
             logger.exception("Logout failed: %s", e)
             self.db.rollback()
             raise HTTPException(status_code=500, detail="An error occurred")
 
-    def create_user(self, username: str, password: str) -> User:
+    def create_user(self, username: str, password: str, role: str = "viewer") -> User:
         _validate_username(username)
         _validate_password(password)
+        if role not in ALLOWED_ROLES:
+            raise HTTPException(status_code=400, detail="Invalid role")
         existing = self.get_user(username)
         if existing:
             raise HTTPException(status_code=400, detail="Username already exists")
         hashed = self.hash_password(password)
-        user = User(username=username, password_hash=hashed, role="admin")
+        user = User(username=username, password_hash=hashed, role=role)
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)
@@ -191,6 +207,25 @@ class AuthService:
         self.db.commit()
         self.db.refresh(user)
         return user
+
+    def change_password(self, user: User, current_password: str, new_password: str) -> bool:
+        """Change a user's password after verifying the current password."""
+        # Re-fetch user in this session to ensure it's attached
+        db_user = self.db.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not self.verify_password(current_password, db_user.password_hash):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        _validate_password(new_password)
+        db_user.password_hash = self.hash_password(new_password)
+        self.db.commit()
+        logger.info(f"Password changed for user: {db_user.username}")
+        return True
+
+    def has_role(self, user: User, required_role: str) -> bool:
+        if required_role not in ROLE_RANK:
+            return False
+        return ROLE_RANK.get(user.role or "viewer", 0) >= ROLE_RANK[required_role]
 
     def list_users(self) -> list:
         users = self.db.query(User).all()
@@ -240,3 +275,40 @@ class AuthService:
                 else:
                     self.db.add(AuthConfig(key=key, value=str_val, description=""))
         self.db.commit()
+
+    def _store_token_jti(self, username: Optional[str], jti: str, expires_at: datetime) -> None:
+        user = self.get_user(username) if username else None
+        token = Token(
+            user_id=user.id if user else None,
+            token=jti,
+            token_type="access",
+            expires_at=expires_at,
+        )
+        self.db.add(token)
+        self.db.commit()
+
+    def _is_token_revoked(self, jti: str) -> bool:
+        try:
+            token = self.db.query(Token).filter(Token.token == jti).first()
+        except Exception:
+            logger.exception("Token revocation check failed for jti=%s", jti[:8] + "..." if len(jti) > 8 else jti)
+            return True
+        if token is None:
+            return True
+        if token.invalidated_at is not None:
+            return True
+        if token.expires_at and datetime.utcnow() > token.expires_at:
+            return True
+        return False
+
+    def _revoke_token_jti(self, jti: str) -> None:
+        token = self.db.query(Token).filter(Token.token == jti).first()
+        if token:
+            token.invalidated_at = datetime.utcnow()
+            self.db.commit()
+
+    def revoke_token(self, token: str) -> None:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
+        jti = payload.get("jti")
+        if jti:
+            self._revoke_token_jti(jti)

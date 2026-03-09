@@ -9,7 +9,8 @@ import re
 import json
 import yaml
 import logging
-from pathlib import Path
+
+from utils import ensure_within_dir
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,6 @@ class ConfigService:
 
     def get_model_config(self, model_name: str) -> Dict[str, Any]:
         """Get configuration for a specific model by scanning config files."""
-        # Try exact filename match first
         safe_name = sanitize_config_filename(model_name)
         exact_path = os.path.join(self.config_dir, f"{safe_name}.yaml")
         if os.path.exists(exact_path):
@@ -46,7 +46,6 @@ class ConfigService:
             except (yaml.YAMLError, IOError, OSError):
                 pass
 
-        # Search config files by model name in their content
         for filename in os.listdir(self.config_dir):
             if not filename.endswith('.yaml') or filename in ('active.yaml',):
                 continue
@@ -79,25 +78,21 @@ class ConfigService:
         ]
 
     def associate_config(self, model_name: str, config_path: str) -> str:
-        """Associate a model with a configuration file. Validates config_path is within config_dir."""
+        """Associate a model with a configuration file."""
         raw = config_path.strip()
         if not raw:
             raise ValueError("Config path cannot be empty")
         config_path = os.path.normpath(raw)
         if not os.path.isabs(config_path):
             config_path = os.path.join(self.config_dir, config_path)
-        real_config_dir = os.path.realpath(self.config_dir)
         try:
-            real_path = os.path.realpath(config_path)
+            real_path = ensure_within_dir(self.config_dir, config_path)
         except OSError:
             raise ValueError(f"Config path does not exist: {config_path}")
         if not os.path.exists(real_path):
             raise ValueError(f"Config path does not exist: {config_path}")
-        if not real_path.startswith(real_config_dir):
-            raise ValueError(f"Config path must be within {self.config_dir}")
         if not os.path.isfile(real_path) or not real_path.endswith((".yaml", ".yml")):
             raise ValueError("Config path must be a YAML file")
-        # Update the config file's model field to associate with model_name
         try:
             with open(real_path, "r") as f:
                 config = yaml.safe_load(f)
@@ -133,7 +128,10 @@ class ConfigService:
 
     def generate_config_for_model(self, model_name: str, model_dir: str) -> Optional[str]:
         """Auto-generate a vLLM config YAML for a newly downloaded model.
+        Reads config.json from model_dir for authoritative metadata.
         Returns the config file path, or None if generation fails."""
+        from services.hf_service import HuggingFaceService, derive_model_type
+
         safe_name = sanitize_config_filename(model_name)
         config_path = os.path.join(self.config_dir, f"{safe_name}.yaml")
 
@@ -141,36 +139,25 @@ class ConfigService:
             logger.info(f"Config already exists for {model_name}, skipping auto-generation")
             return config_path
 
-        config_json_path = os.path.join(model_dir, "config.json")
         arch = ""
         num_experts = 0
-        model_type_hint = ""
+        quant_method = None
 
-        if os.path.exists(config_json_path):
-            try:
-                with open(config_json_path, 'r') as f:
-                    model_config = json.load(f)
-                architectures = model_config.get("architectures", [])
-                arch = architectures[0] if architectures else ""
-                num_experts = model_config.get("num_local_experts", 0) or model_config.get("num_experts", 0)
-                model_type_hint = model_config.get("model_type", "")
-            except (json.JSONDecodeError, IOError):
-                pass
+        config_json_path = os.path.join(model_dir, "config.json")
+        meta = HuggingFaceService._read_config_json(config_json_path)
+        weights_type = None
+        weights_bits = None
+        if meta:
+            arch = meta["architecture"]
+            num_experts = meta["num_experts"]
+            quant_method = meta["quant_method"]
+            weights_type = meta.get("weights_type")
+            weights_bits = meta.get("weights_bits")
 
-        name_lower = model_name.lower()
-        is_moe = num_experts > 0 or "moe" in name_lower or "a3b" in name_lower
-        is_fp8 = "fp8" in name_lower
-        is_fp4 = "fp4" in name_lower or "nvfp4" in name_lower
-        is_awq = "awq" in name_lower
-        is_gptq = "gptq" in name_lower
-        is_quantized = is_fp8 or is_fp4 or is_awq or is_gptq
-
-        if is_moe and is_fp4:
-            model_type = "moe_fp4"
-        elif is_moe:
-            model_type = "moe_fp8"
-        else:
-            model_type = "dense"
+        model_type = derive_model_type(num_experts, quant_method, weights_type, weights_bits)
+        is_moe = num_experts > 0
+        is_fp4 = quant_method and "fp4" in quant_method.lower() if quant_method else False
+        is_quantized = quant_method is not None
 
         short_name = model_name.split('/')[-1] if '/' in model_name else model_name
 
@@ -192,9 +179,22 @@ class ConfigService:
             "trust_remote_code": True,
         }
 
+        env_vars: Dict[str, str] = {
+            "SAFETENSORS_FAST_GPU": "1",
+            "CUDA_VISIBLE_DEVICES": "0,1",
+        }
+
         if is_moe:
             config["enable_expert_parallel"] = True
+            env_vars["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 
+        if is_moe and is_fp4:
+            env_vars["VLLM_USE_FLASHINFER_MOE_FP4"] = "1"
+            env_vars["VLLM_USE_FLASHINFER_MOE_FP8"] = "1"
+
+        config["env_vars"] = env_vars
+
+        name_lower = model_name.lower()
         if "mistral" in arch.lower() or "mistral" in name_lower:
             config["tool_call_parser"] = "mistral"
             config["enable_auto_tool_choice"] = True

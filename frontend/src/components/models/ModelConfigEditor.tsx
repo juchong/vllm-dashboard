@@ -1,12 +1,50 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import yaml from 'js-yaml'
-import api from '../../services/api'
 
 interface ModelConfigEditorProps {
   modelName: string
   config: any
   configPath: string | null
+  detectedModelType?: string
   onSave: (modelName: string, config: any) => void
+}
+
+const CORE_KEYS = [
+  'model',
+  'served_model_name',
+  'max_model_len',
+  'tensor_parallel_size',
+  'host',
+  'port',
+  'download_dir',
+  'vllm_image',
+  'model_type',
+] as const
+
+type CoreKey = typeof CORE_KEYS[number]
+
+interface CoreConfig {
+  model: string
+  served_model_name: string
+  max_model_len: number
+  tensor_parallel_size: number
+  host: string
+  port: number
+  download_dir: string
+  vllm_image: string
+  model_type: string
+}
+
+const DEFAULT_CORE: CoreConfig = {
+  model: '',
+  served_model_name: '',
+  max_model_len: 8192,
+  tensor_parallel_size: 2,
+  host: '0.0.0.0',
+  port: 8000,
+  download_dir: '/root/.cache/huggingface',
+  vllm_image: 'vllm/vllm-openai:latest',
+  model_type: 'dense_full',
 }
 
 function parseCliArgs(input: string): Record<string, any> {
@@ -45,21 +83,64 @@ function parseCliArgs(input: string): Record<string, any> {
   return result
 }
 
-interface EnvPreview {
-  model_type: string
-  inherited: Record<string, string>
-  inherited_sources: Record<string, string>
-  overrides: Record<string, string>
-  merged: Record<string, string>
+function splitConfig(config: any): { core: CoreConfig; advanced: Record<string, any> } {
+  const core: CoreConfig = { ...DEFAULT_CORE }
+  const advanced: Record<string, any> = {}
+
+  if (!config || typeof config !== 'object') {
+    return { core, advanced }
+  }
+
+  for (const [key, value] of Object.entries(config)) {
+    if (key === 'env_vars' || key === 'env_overrides') continue
+    if (CORE_KEYS.includes(key as CoreKey)) {
+      (core as any)[key] = value
+    } else {
+      advanced[key] = value
+    }
+  }
+
+  return { core, advanced }
+}
+
+function mergeConfig(core: CoreConfig, advanced: Record<string, any>, envVars: Array<{ key: string; value: string }>): any {
+  const result: any = {}
+  
+  for (const key of CORE_KEYS) {
+    const val = core[key]
+    if (val !== undefined && val !== '' && val !== DEFAULT_CORE[key]) {
+      result[key] = val
+    } else if (key === 'model' || key === 'served_model_name' || key === 'host' || key === 'port') {
+      result[key] = val || DEFAULT_CORE[key]
+    }
+  }
+  
+  for (const [key, value] of Object.entries(advanced)) {
+    result[key] = value
+  }
+  
+  if (envVars.length > 0) {
+    const varsObj: Record<string, string> = {}
+    for (const { key, value } of envVars) {
+      if (key.trim()) varsObj[key.trim()] = value
+    }
+    if (Object.keys(varsObj).length > 0) {
+      result.env_vars = varsObj
+    }
+  }
+  
+  return result
 }
 
 const ModelConfigEditor = ({
   modelName,
   config,
   configPath,
+  detectedModelType,
   onSave,
 }: ModelConfigEditorProps) => {
-  const [editedConfig, setEditedConfig] = useState<string>('')
+  const [coreConfig, setCoreConfig] = useState<CoreConfig>({ ...DEFAULT_CORE })
+  const [advancedYaml, setAdvancedYaml] = useState<string>('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -68,55 +149,55 @@ const ModelConfigEditor = ({
   const [cliInput, setCliInput] = useState('')
   const [cliPreview, setCliPreview] = useState<Record<string, any> | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'yaml' | 'env'>('yaml')
-  const [envPreview, setEnvPreview] = useState<EnvPreview | null>(null)
-  const [envOverrides, setEnvOverrides] = useState<Array<{ key: string; value: string }>>([])
-  const [envLoading, setEnvLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'core' | 'advanced' | 'env'>('core')
+  const [envVars, setEnvVars] = useState<Array<{ key: string; value: string }>>([])
 
   useEffect(() => {
     try {
       const isEmpty = !config || Object.keys(config).length === 0
+      const effectiveModelType = detectedModelType || 'dense_full'
 
       if (isEmpty) {
-        const defaultTemplate = `# vLLM Configuration for ${modelName}
-model: ${modelName}
-model_type: dense
-served_model_name: ${modelName.split('/').pop() || modelName}
-dtype: auto
-tensor_parallel_size: 2
-max_model_len: 8192
-gpu_memory_utilization: 0.90
-host: 0.0.0.0
-port: 8000
-download_dir: /root/.cache/huggingface
-trust_remote_code: true
-`
-        setEditedConfig(defaultTemplate)
-      } else {
-        const yamlStr = yaml.dump(config, {
-          indent: 2,
-          lineWidth: -1,
-          noRefs: true,
-          sortKeys: false
+        setCoreConfig({
+          ...DEFAULT_CORE,
+          model: modelName,
+          served_model_name: modelName.split('/').pop() || modelName,
+          model_type: effectiveModelType,
         })
-        setEditedConfig(yamlStr)
+        setAdvancedYaml('# Model-specific parameters\ntrust_remote_code: true\n')
+      } else {
+        const { core, advanced } = splitConfig(config)
+        if (!core.model) core.model = modelName
+        if (!core.served_model_name) core.served_model_name = modelName.split('/').pop() || modelName
+        if (!config.model_type && detectedModelType) {
+          core.model_type = detectedModelType
+        }
+        setCoreConfig(core)
+        
+        const advYaml = Object.keys(advanced).length > 0
+          ? yaml.dump(advanced, { indent: 2, lineWidth: -1, noRefs: true, sortKeys: false })
+          : '# Model-specific parameters\n'
+        setAdvancedYaml(advYaml)
 
-        const overrides = config.env_overrides || {}
-        setEnvOverrides(
-          Object.entries(overrides).map(([key, value]) => ({ key, value: String(value) }))
+        const vars = config.env_vars || config.env_overrides || {}
+        setEnvVars(
+          Object.entries(vars).map(([key, value]) => ({ key, value: String(value) }))
         )
       }
       setParseError(null)
     } catch {
-      setEditedConfig('')
-      setParseError('Failed to convert config to YAML')
+      setAdvancedYaml('')
+      setParseError('Failed to parse config')
     }
-  }, [config, modelName])
+  }, [config, modelName, detectedModelType])
 
-  const validateYaml = (yamlStr: string): { valid: boolean; error?: string; parsed?: any } => {
+  const validateAdvancedYaml = (yamlStr: string): { valid: boolean; error?: string; parsed?: any } => {
     try {
       const parsed = yaml.load(yamlStr, { schema: yaml.JSON_SCHEMA })
-      return { valid: true, parsed }
+      if (parsed && typeof parsed !== 'object') {
+        return { valid: false, error: 'YAML must be a key-value mapping' }
+      }
+      return { valid: true, parsed: parsed || {} }
     } catch (e: any) {
       const errorMsg = e.message || 'Invalid YAML syntax'
       const match = errorMsg.match(/at line (\d+)/)
@@ -127,34 +208,36 @@ trust_remote_code: true
     }
   }
 
-  const handleChange = (value: string) => {
-    setEditedConfig(value)
-    const result = validateYaml(value)
+  const handleAdvancedChange = (value: string) => {
+    setAdvancedYaml(value)
+    const result = validateAdvancedYaml(value)
     setParseError(result.valid ? null : (result.error || 'Invalid YAML'))
   }
 
+  const updateCoreField = <K extends keyof CoreConfig>(key: K, value: CoreConfig[K]) => {
+    setCoreConfig(prev => ({ ...prev, [key]: value }))
+  }
+
   const handleSave = async () => {
-    const result = validateYaml(editedConfig)
-    if (!result.valid) {
-      setParseError(result.error || 'Invalid YAML')
+    const advResult = validateAdvancedYaml(advancedYaml)
+    if (!advResult.valid) {
+      setParseError(advResult.error || 'Invalid YAML in advanced settings')
+      setActiveTab('advanced')
       return
     }
 
-    const parsed = result.parsed || {}
-    if (envOverrides.length > 0) {
-      const overridesObj: Record<string, string> = {}
-      for (const { key, value } of envOverrides) {
-        if (key.trim()) overridesObj[key.trim()] = value
-      }
-      if (Object.keys(overridesObj).length > 0) {
-        parsed.env_overrides = overridesObj
-      }
+    if (!coreConfig.model.trim()) {
+      setSaveResult({ type: 'error', text: 'Model path is required' })
+      setActiveTab('core')
+      return
     }
+
+    const merged = mergeConfig(coreConfig, advResult.parsed || {}, envVars)
 
     setSaving(true)
     setSaveResult(null)
     try {
-      await onSave(modelName, parsed)
+      await onSave(modelName, merged)
       setSaveResult({ type: 'success', text: 'Configuration saved' })
       setTimeout(() => setSaveResult(null), 3000)
     } catch {
@@ -172,40 +255,37 @@ trust_remote_code: true
 
   const handleCliMerge = () => {
     if (!cliPreview) return
-    const result = validateYaml(editedConfig)
-    const existing = result.valid && result.parsed ? result.parsed : {}
-    const merged = { ...existing, ...cliPreview }
-    const newYaml = yaml.dump(merged, { indent: 2, lineWidth: -1, noRefs: true, sortKeys: false })
-    setEditedConfig(newYaml)
+    
+    const { core: parsedCore, advanced: parsedAdvanced } = splitConfig(cliPreview)
+    
+    setCoreConfig(prev => {
+      const updated = { ...prev }
+      for (const key of CORE_KEYS) {
+        if ((parsedCore as any)[key] !== DEFAULT_CORE[key]) {
+          (updated as any)[key] = (parsedCore as any)[key]
+        }
+      }
+      return updated
+    })
+    
+    const advResult = validateAdvancedYaml(advancedYaml)
+    const existingAdvanced = advResult.valid && advResult.parsed ? advResult.parsed : {}
+    const mergedAdvanced = { ...existingAdvanced, ...parsedAdvanced }
+    const newAdvYaml = Object.keys(mergedAdvanced).length > 0
+      ? yaml.dump(mergedAdvanced, { indent: 2, lineWidth: -1, noRefs: true, sortKeys: false })
+      : '# Model-specific parameters\n'
+    setAdvancedYaml(newAdvYaml)
+    
     setParseError(null)
     setCliPreview(null)
     setCliInput('')
     setShowCliImport(false)
   }
 
-  const fetchEnvPreview = useCallback(async () => {
-    if (!configPath) return
-    const filename = configPath.split('/').pop()
-    if (!filename) return
-    setEnvLoading(true)
-    try {
-      const response = await api.get(`/vllm/env/preview/${filename}`)
-      setEnvPreview(response.data.data)
-    } catch {
-      setEnvPreview(null)
-    } finally {
-      setEnvLoading(false)
-    }
-  }, [configPath])
-
-  useEffect(() => {
-    if (activeTab === 'env') fetchEnvPreview()
-  }, [activeTab, fetchEnvPreview])
-
-  const addEnvOverride = () => setEnvOverrides(prev => [...prev, { key: '', value: '' }])
-  const removeEnvOverride = (idx: number) => setEnvOverrides(prev => prev.filter((_, i) => i !== idx))
-  const updateEnvOverride = (idx: number, field: 'key' | 'value', val: string) => {
-    setEnvOverrides(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item))
+  const addEnvVar = () => setEnvVars(prev => [...prev, { key: '', value: '' }])
+  const removeEnvVar = (idx: number) => setEnvVars(prev => prev.filter((_, i) => i !== idx))
+  const updateEnvVar = (idx: number, field: 'key' | 'value', val: string) => {
+    setEnvVars(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item))
   }
 
   if (config === null) {
@@ -231,14 +311,24 @@ trust_remote_code: true
       {/* Tab switcher */}
       <div className="flex border-b border-default">
         <button
-          onClick={() => setActiveTab('yaml')}
+          onClick={() => setActiveTab('core')}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-            activeTab === 'yaml'
+            activeTab === 'core'
               ? 'border-blue-500 text-blue-600'
               : 'border-transparent text-dim hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          Configuration (YAML)
+          Core Settings
+        </button>
+        <button
+          onClick={() => setActiveTab('advanced')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            activeTab === 'advanced'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-dim hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Advanced
         </button>
         <button
           onClick={() => setActiveTab('env')}
@@ -248,12 +338,139 @@ trust_remote_code: true
               : 'border-transparent text-dim hover:text-gray-700 dark:hover:text-gray-300'
           }`}
         >
-          Environment Variables
+          Environment
         </button>
       </div>
 
-      {activeTab === 'yaml' && (
+      {activeTab === 'core' && (
         <div className="space-y-4">
+          <p className="text-xs text-dim">Required vLLM server parameters. These are always present in the configuration.</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Model Path</label>
+              <input
+                type="text"
+                value={coreConfig.model}
+                onChange={(e) => updateCoreField('model', e.target.value)}
+                className="form-input font-mono text-sm"
+                placeholder="org/model-name"
+              />
+            </div>
+            <div>
+              <label className="form-label">Served Model Name</label>
+              <input
+                type="text"
+                value={coreConfig.served_model_name}
+                onChange={(e) => updateCoreField('served_model_name', e.target.value)}
+                className="form-input text-sm"
+                placeholder="Display name for API"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="form-label">Max Model Length</label>
+              <input
+                type="number"
+                value={coreConfig.max_model_len}
+                onChange={(e) => updateCoreField('max_model_len', parseInt(e.target.value) || 0)}
+                className="form-input text-sm"
+                min={0}
+              />
+              <span className="text-xs text-dim">{(coreConfig.max_model_len / 1024).toFixed(0)}K tokens</span>
+            </div>
+            <div>
+              <label className="form-label">Tensor Parallel Size</label>
+              <input
+                type="number"
+                value={coreConfig.tensor_parallel_size}
+                onChange={(e) => updateCoreField('tensor_parallel_size', parseInt(e.target.value) || 1)}
+                className="form-input text-sm"
+                min={1}
+                max={8}
+              />
+            </div>
+            <div>
+              <label className="form-label">Host</label>
+              <input
+                type="text"
+                value={coreConfig.host}
+                onChange={(e) => updateCoreField('host', e.target.value)}
+                className="form-input font-mono text-sm"
+              />
+            </div>
+            <div>
+              <label className="form-label">Port</label>
+              <input
+                type="number"
+                value={coreConfig.port}
+                onChange={(e) => updateCoreField('port', parseInt(e.target.value) || 8000)}
+                className="form-input text-sm"
+                min={1}
+                max={65535}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">vLLM Image</label>
+              <input
+                type="text"
+                value={coreConfig.vllm_image}
+                onChange={(e) => updateCoreField('vllm_image', e.target.value)}
+                className="form-input font-mono text-sm"
+                placeholder="vllm/vllm-openai:latest"
+              />
+            </div>
+            <div>
+              <label className="form-label">Model Type</label>
+              <select
+                value={coreConfig.model_type}
+                onChange={(e) => updateCoreField('model_type', e.target.value)}
+                className="form-input text-sm"
+              >
+                <optgroup label="Dense">
+                  <option value="dense_full">Dense (Full Precision)</option>
+                  <option value="dense_fp8">Dense FP8</option>
+                  <option value="dense_int8">Dense INT8</option>
+                  <option value="dense_int4">Dense INT4/AWQ</option>
+                </optgroup>
+                <optgroup label="Mixture of Experts">
+                  <option value="moe_full">MoE (Full Precision)</option>
+                  <option value="moe_fp8">MoE FP8</option>
+                  <option value="moe_fp4">MoE FP4</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">Download Directory</label>
+            <input
+              type="text"
+              value={coreConfig.download_dir}
+              onChange={(e) => updateCoreField('download_dir', e.target.value)}
+              className="form-input font-mono text-sm"
+            />
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="dashboard-button btn-sm disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save Configuration'}
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'advanced' && (
+        <div className="space-y-4">
+          <p className="text-xs text-dim">Model-specific parameters (YAML). These vary by model and use case.</p>
+          
           {/* CLI Import */}
           <div>
             <button
@@ -264,12 +481,12 @@ trust_remote_code: true
             </button>
             {showCliImport && (
               <div className="mt-2 p-3 surface-secondary border rounded space-y-2">
-                <p className="text-xs text-dim">Paste Docker CLI args (e.g. from GitHub). Lines with backslash continuations are supported.</p>
+                <p className="text-xs text-dim">Paste Docker CLI args. Core params go to Core Settings, others here.</p>
                 <textarea
                   value={cliInput}
                   onChange={(e) => { setCliInput(e.target.value); setCliPreview(null) }}
                   className="form-input font-mono text-xs h-24 resize-y"
-                  placeholder={"--quantization fp8 \\\n--tensor-parallel-size 2 \\\n--enable-chunked-prefill"}
+                  placeholder={"--quantization fp8 \\\n--enable-chunked-prefill \\\n--trust-remote-code"}
                   spellCheck={false}
                 />
                 <div className="flex gap-2">
@@ -278,7 +495,7 @@ trust_remote_code: true
                   </button>
                   {cliPreview && (
                     <button onClick={handleCliMerge} className="dashboard-button btn-sm bg-green-600 hover:bg-green-700">
-                      Merge into YAML
+                      Merge
                     </button>
                   )}
                 </div>
@@ -293,123 +510,96 @@ trust_remote_code: true
             )}
           </div>
 
-          {/* YAML Editor */}
+          {/* Advanced YAML Editor */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="form-label mb-0">Edit Configuration</label>
+              <label className="form-label mb-0">Advanced Parameters (YAML)</label>
               <span className={`badge ${parseError ? 'badge-red' : 'badge-green'}`}>
                 {parseError ? 'Invalid' : 'Valid'}
               </span>
             </div>
             <textarea
-              value={editedConfig}
-              onChange={(e) => handleChange(e.target.value)}
-              className={`form-input font-mono text-sm h-72 resize-y ${
+              value={advancedYaml}
+              onChange={(e) => handleAdvancedChange(e.target.value)}
+              className={`form-input font-mono text-sm h-56 resize-y ${
                 parseError ? 'border-red-300 bg-red-50 focus:ring-red-500' : ''
               }`}
               spellCheck={false}
-              placeholder="# vLLM Configuration (YAML format)"
+              placeholder="# Model-specific parameters"
             />
             {parseError && (
               <div className="alert alert-error mt-2 text-sm font-mono p-2">{parseError}</div>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSave}
-              disabled={!!parseError || saving}
-              className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? 'Saving...' : 'Save Configuration'}
-            </button>
-          </div>
+          <button
+            onClick={handleSave}
+            disabled={!!parseError || saving}
+            className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save Configuration'}
+          </button>
         </div>
       )}
 
       {activeTab === 'env' && (
         <div className="space-y-4">
-          {envLoading ? (
-            <div className="text-dim text-sm">Loading environment variables...</div>
-          ) : !envPreview ? (
-            <div className="text-dim text-sm">Save the configuration first to preview environment variables.</div>
-          ) : (
-            <>
-              {/* Inherited variables */}
-              <div>
-                <h4 className="text-sm font-medium text-body mb-2">Inherited Variables</h4>
-                <div className="surface-secondary border rounded p-3 space-y-1 max-h-48 overflow-y-auto">
-                  {Object.entries(envPreview.inherited).map(([key, value]) => (
-                    <div key={key} className="flex items-center text-xs font-mono">
-                      <span className="text-faint w-24 shrink-0 truncate" title={envPreview.inherited_sources[key]}>
-                        {envPreview.inherited_sources[key]}
-                      </span>
-                      <span className="text-body">{key}</span>
-                      <span className="text-faint mx-1">=</span>
-                      <span className="text-body">{value}</span>
-                    </div>
-                  ))}
+          <div>
+            <h4 className="text-sm font-medium text-body mb-2">Environment Variables</h4>
+            <p className="text-xs text-dim mb-3">
+              These environment variables are passed to the vLLM container. All env vars for this model should be defined here.
+            </p>
+            <div className="space-y-2">
+              {envVars.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    value={item.key}
+                    onChange={(e) => updateEnvVar(idx, 'key', e.target.value)}
+                    className="form-input font-mono text-xs flex-1"
+                    placeholder="KEY"
+                  />
+                  <span className="text-faint">=</span>
+                  <input
+                    value={item.value}
+                    onChange={(e) => updateEnvVar(idx, 'value', e.target.value)}
+                    className="form-input font-mono text-xs flex-1"
+                    placeholder="value"
+                  />
+                  <button
+                    onClick={() => removeEnvVar(idx)}
+                    className="text-red-500 hover:text-red-700 text-sm px-1"
+                    title="Remove"
+                  >&times;</button>
                 </div>
-              </div>
-
-              {/* Model overrides */}
-              <div>
-                <h4 className="text-sm font-medium text-body mb-2">Model Overrides</h4>
-                <div className="space-y-2">
-                  {envOverrides.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <input
-                        value={item.key}
-                        onChange={(e) => updateEnvOverride(idx, 'key', e.target.value)}
-                        className="form-input font-mono text-xs flex-1"
-                        placeholder="KEY"
-                      />
-                      <span className="text-faint">=</span>
-                      <input
-                        value={item.value}
-                        onChange={(e) => updateEnvOverride(idx, 'value', e.target.value)}
-                        className="form-input font-mono text-xs flex-1"
-                        placeholder="value"
-                      />
-                      <button
-                        onClick={() => removeEnvOverride(idx)}
-                        className="text-red-500 hover:text-red-700 text-sm px-1"
-                        title="Remove"
-                      >&times;</button>
-                    </div>
-                  ))}
-                  <button onClick={addEnvOverride} className="text-sm text-blue-600 hover:text-blue-800">
-                    + Add override
-                  </button>
-                </div>
-              </div>
-
-              {/* Merged preview */}
-              <details className="text-xs">
-                <summary className="text-sm font-medium text-body cursor-pointer mb-1">Merged Preview (what vLLM sees)</summary>
-                <div className="surface-secondary border rounded p-3 space-y-0.5 max-h-48 overflow-y-auto font-mono">
-                  {Object.entries({
-                    ...envPreview.inherited,
-                    ...Object.fromEntries(envOverrides.filter(o => o.key.trim()).map(o => [o.key, o.value]))
-                  }).map(([key, value]) => (
-                    <div key={key}>
-                      <span className="text-body">{key}</span>
-                      <span className="text-faint">=</span>
-                      <span className={envOverrides.some(o => o.key === key) ? 'text-blue-600 font-medium' : 'text-body'}>{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="dashboard-button btn-sm disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : 'Save Configuration & Overrides'}
+              ))}
+              <button onClick={addEnvVar} className="text-sm text-blue-600 hover:text-blue-800">
+                + Add variable
               </button>
-            </>
+            </div>
+          </div>
+
+          {envVars.some(o => o.key.trim()) && (
+            <details className="text-xs">
+              <summary className="text-sm font-medium text-body cursor-pointer mb-1">Preview (what vLLM sees)</summary>
+              <div className="surface-secondary border rounded p-3 space-y-0.5 max-h-48 overflow-y-auto font-mono">
+                {envVars.filter(o => o.key.trim()).map(({ key, value }) => (
+                  <div key={key}>
+                    <span className="text-body">{key}</span>
+                    <span className="text-faint">=</span>
+                    <span className="text-body">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="dashboard-button btn-sm disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save Configuration'}
+          </button>
         </div>
       )}
 

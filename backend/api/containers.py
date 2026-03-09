@@ -7,9 +7,11 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from deps import get_current_user
+from deps import get_current_user, require_role
 from models.auth_models import User
+from rate_limit import enforce_heavy_api_limits
 from services.docker_service import DockerService
+from security import audit_event
 
 router = APIRouter()
 
@@ -19,22 +21,20 @@ class ContainerAction(BaseModel):
     profile: Optional[str] = None
 
 
-class ContainerLogsRequest(BaseModel):
-    container_name: str
-    tail: Optional[int] = 100
-    follow: Optional[bool] = False
-
-
 @router.post("/start")
-async def start_container(action: ContainerAction, request: Request, current_user: User = Depends(get_current_user)):
+async def start_container(action: ContainerAction, request: Request, current_user: User = Depends(require_role("admin"))):
     """Start a vLLM container"""
+    enforce_heavy_api_limits(request, "container_control")
     docker_service: DockerService = request.app.state.docker_service
     
     try:
+        request.state.current_user = current_user
+        request.app.state.cooldown_guard.check(f"{current_user.id}:container-start:{action.container_name}")
         result = docker_service.start_container(
             action.container_name,
             profile=action.profile
         )
+        audit_event(request, "start_container", action.container_name, "success")
         return {"status": "success", "message": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -43,12 +43,16 @@ async def start_container(action: ContainerAction, request: Request, current_use
 
 
 @router.post("/stop")
-async def stop_container(action: ContainerAction, request: Request, current_user: User = Depends(get_current_user)):
+async def stop_container(action: ContainerAction, request: Request, current_user: User = Depends(require_role("admin"))):
     """Stop a vLLM container"""
+    enforce_heavy_api_limits(request, "container_control")
     docker_service: DockerService = request.app.state.docker_service
     
     try:
+        request.state.current_user = current_user
+        request.app.state.cooldown_guard.check(f"{current_user.id}:container-stop:{action.container_name}")
         result = docker_service.stop_container(action.container_name)
+        audit_event(request, "stop_container", action.container_name, "success")
         return {"status": "success", "message": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -57,12 +61,16 @@ async def stop_container(action: ContainerAction, request: Request, current_user
 
 
 @router.post("/restart")
-async def restart_container(action: ContainerAction, request: Request, current_user: User = Depends(get_current_user)):
+async def restart_container(action: ContainerAction, request: Request, current_user: User = Depends(require_role("operator"))):
     """Restart a vLLM container"""
+    enforce_heavy_api_limits(request, "container_control")
     docker_service: DockerService = request.app.state.docker_service
     
     try:
+        request.state.current_user = current_user
+        request.app.state.cooldown_guard.check(f"{current_user.id}:container-restart:{action.container_name}")
         result = docker_service.restart_container(action.container_name)
+        audit_event(request, "restart_container", action.container_name, "success")
         return {"status": "success", "message": result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -97,6 +105,7 @@ async def get_container_logs(
     
     tail = max(1, min(tail, 10000))
     try:
+        enforce_heavy_api_limits(request, "container_logs")
         if follow:
             # Streaming response for real-time logs
             return docker_service.stream_container_logs(container_name, tail=tail)
@@ -106,4 +115,4 @@ async def get_container_logs(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="An error occurred")
+        raise HTTPException(status_code=500, detail=str(e))

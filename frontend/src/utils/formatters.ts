@@ -5,8 +5,6 @@ export const setTimezone = (tz: string) => {
   if (tz) serverTimezone = tz
 }
 
-export const getTimezone = () => serverTimezone
-
 export const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B'
   
@@ -17,33 +15,6 @@ export const formatBytes = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-export const formatPercentage = (value: number): string => {
-  return `${Math.round(value)}%`
-}
-
-export const formatTemperature = (celsius: number): string => {
-  return `${celsius}°C`
-}
-
-export const formatPower = (watts: number): string => {
-  return `${Math.round(watts / 1000)}W`
-}
-
-export const formatDate = (dateString: string): string => {
-  try {
-    return new Date(dateString).toLocaleString('en-US', {
-      timeZone: serverTimezone,
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  } catch {
-    return new Date(dateString).toLocaleString()
-  }
-}
 
 export const formatDateTime = (dateString: string): string => {
   try {
@@ -56,19 +27,6 @@ export const formatDateTime = (dateString: string): string => {
     })
   } catch {
     return new Date(dateString).toLocaleString()
-  }
-}
-
-export const formatTime = (dateString: string): string => {
-  try {
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      timeZone: serverTimezone,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  } catch {
-    return new Date(dateString).toLocaleTimeString()
   }
 }
 

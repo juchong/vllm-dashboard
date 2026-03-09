@@ -2,9 +2,8 @@
 GPU monitoring service
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import psutil
-import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -100,7 +99,7 @@ class GPUService:
         try:
             return {
                 "cpu": {
-                    "percent": psutil.cpu_percent(interval=1),
+                    "percent": psutil.cpu_percent(interval=0.1),
                     "count": psutil.cpu_count()
                 },
                 "memory": {
@@ -127,5 +126,5 @@ class GPUService:
         if self.nvml_initialized and NVML_AVAILABLE:
             try:
                 pynvml.nvmlShutdown()
-            except:
+            except Exception:
                 pass

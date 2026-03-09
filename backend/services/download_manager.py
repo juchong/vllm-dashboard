@@ -11,24 +11,26 @@ import shutil
 import time
 import threading
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from collections import deque
 import logging
+
+from utils import format_size
 
 logger = logging.getLogger(__name__)
 
 
 def _validate_model_path(models_dir: str, model_name: str) -> None:
     """Ensure model_name does not escape models_dir (path traversal)."""
-    if not model_name or ".." in model_name:
+    if not model_name or ".." in model_name or os.path.isabs(model_name):
         raise ValueError("Invalid model name")
     try:
         local_dir = os.path.join(models_dir, model_name)
         real_local = os.path.realpath(os.path.normpath(local_dir))
         real_models = os.path.realpath(models_dir)
-        if not real_local.startswith(real_models):
+        if os.path.commonpath([real_models, real_local]) != real_models:
             raise ValueError("Invalid model name")
     except (ValueError, OSError):
         raise ValueError("Invalid model name")
@@ -359,12 +361,12 @@ class DownloadManager:
             "started_at": task.started_at,
             "completed_at": task.completed_at,
             "downloaded_size": downloaded_size,
-            "downloaded_size_human": self._format_size(downloaded_size),
+            "downloaded_size_human": format_size(downloaded_size),
             "expected_size": task.expected_size,
-            "expected_size_human": self._format_size(task.expected_size) if task.expected_size else None,
+            "expected_size_human": format_size(task.expected_size) if task.expected_size else None,
             "progress_pct": round(progress_pct, 1) if progress_pct is not None else None,
             "speed_bps": int(speed_bps),
-            "speed_human": f"{self._format_size(int(speed_bps))}/s" if speed_bps > 0 else None,
+            "speed_human": f"{format_size(int(speed_bps))}/s" if speed_bps > 0 else None,
             "eta_seconds": eta_seconds,
             "elapsed_seconds": elapsed_seconds,
         }
@@ -410,10 +412,3 @@ class DownloadManager:
         except Exception:
             pass
         return total
-
-    def _format_size(self, size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024.0:
-                return f"{size:.1f} {unit}"
-            size /= 1024.0
-        return f"{size:.1f} PB"

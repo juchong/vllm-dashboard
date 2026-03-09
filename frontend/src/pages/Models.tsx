@@ -30,6 +30,7 @@ const Models = () => {
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelConfig, setModelConfig] = useState<any>(null)
   const [modelConfigPath, setModelConfigPath] = useState<string | null>(null)
+  const [detectedModelType, setDetectedModelType] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDownload, setShowDownload] = useState(false)
@@ -78,10 +79,12 @@ const Models = () => {
       const data = response.data.data || {}
       setModelConfig(data.config || {})
       setModelConfigPath(data.config_path || null)
+      setDetectedModelType(data.detected_model_type)
     } catch (err) {
       console.error('Failed to fetch model config:', err)
       setModelConfig({})
       setModelConfigPath(null)
+      setDetectedModelType(undefined)
     }
   }
 
@@ -274,7 +277,7 @@ const Models = () => {
                 Configuration: {selectedModel}
               </h2>
               <button 
-                onClick={() => { setSelectedModel(null); setModelConfig(null) }} 
+                onClick={() => { setSelectedModel(null); setModelConfig(null); setDetectedModelType(undefined) }} 
                 className="modal-close"
               >
                 &times;
@@ -285,6 +288,7 @@ const Models = () => {
                 modelName={selectedModel}
                 config={modelConfig}
                 configPath={modelConfigPath}
+                detectedModelType={detectedModelType}
                 onSave={handleSaveConfig}
               />
             </div>

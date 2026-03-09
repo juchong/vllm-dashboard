@@ -2,23 +2,27 @@
 Docker service for container management
 """
 
+import os
 import re
 import docker
-from docker.errors import DockerException, NotFound, APIError
+from docker.errors import NotFound, APIError
 from typing import Dict, Any, Optional, List
 import subprocess
-import os
-from pathlib import Path
 
-# Whitelist: only allow vLLM-related container names (alphanumeric, hyphen)
-ALLOWED_CONTAINER_PATTERN = re.compile(r"^vllm(-[a-zA-Z0-9]+)*$")
+from security import redact_log_content
+
+# Safe chars for container names (alphanumeric, hyphen, underscore)
+# Compose may prefix with project: ai-vllm-1, ai-vllm-mistral-1
+SAFE_CONTAINER_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-def _validate_container_name(name: str) -> None:
-    """Reject container names that could target arbitrary containers."""
-    if not name or not ALLOWED_CONTAINER_PATTERN.match(name):
+def _validate_container_name(name: str, allow_dashboard_proxy: bool = False) -> None:
+    """Reject container names that could target arbitrary containers. Allow vLLM containers only."""
+    if not name or not SAFE_CONTAINER_PATTERN.match(name):
         raise ValueError("Invalid container name")
-    if "dashboard" in name or "proxy" in name:
+    if "vllm" not in name:
+        raise ValueError("Container must be a vLLM container")
+    if not allow_dashboard_proxy and ("dashboard" in name or "proxy" in name):
         raise ValueError("Cannot operate on dashboard or proxy containers")
 
 
@@ -99,7 +103,7 @@ class DockerService:
                         "status": container.status,
                         "created": container.attrs.get("Created", ""),
                         "image": container.image.tags[0] if container.image.tags else "",
-                        "labels": container.labels
+                        "labels": {}
                     }
         except Exception as e:
             raise Exception(f"Failed to get container status: {str(e)}")
@@ -129,7 +133,7 @@ class DockerService:
                         "status": container.status,
                         "created": container.attrs.get("Created", ""),
                         "image": container.image.tags[0] if container.image.tags else "",
-                        "labels": container.labels
+                        "labels": {}
                     }
         except Exception as e:
             raise Exception(f"Failed to get container status: {str(e)}")
@@ -137,13 +141,16 @@ class DockerService:
         return status
     
     def get_container_logs(self, container_name: str, tail: int = 100) -> str:
-        """Get container logs"""
-        _validate_container_name(container_name)
+        """Get container logs. Optionally redacts sensitive key=value patterns when REDACT_CONTAINER_LOGS is enabled."""
+        _validate_container_name(container_name, allow_dashboard_proxy=True)
         tail = max(1, min(tail, 10000))
         try:
             container = self.client.containers.get(container_name)
             logs = container.logs(tail=tail, stdout=True, stderr=True, timestamps=True)
-            return logs.decode('utf-8')
+            content = logs.decode('utf-8')
+            if os.environ.get("REDACT_CONTAINER_LOGS", "true").lower() in {"1", "true", "yes"}:
+                content = redact_log_content(content)
+            return content
         except NotFound:
             raise Exception(f"Container {container_name} not found")
         except APIError as e:
@@ -151,7 +158,7 @@ class DockerService:
     
     def stream_container_logs(self, container_name: str, tail: int = 100):
         """Stream container logs in real-time"""
-        _validate_container_name(container_name)
+        _validate_container_name(container_name, allow_dashboard_proxy=True)
         tail = max(1, min(tail, 10000))
         try:
             container = self.client.containers.get(container_name)

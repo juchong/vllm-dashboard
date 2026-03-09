@@ -35,10 +35,14 @@ const useMonitoring = () => {
         console.log('Monitoring WebSocket connected')
       }
 
-      wsRef.current.onclose = () => {
+      wsRef.current.onclose = (event) => {
         setConnected(false)
+        // Don't reconnect on 403 (rejected) - avoid hammering server
+        if (event.code === 4008 || event.code === 4001 || event.code === 4003) {
+          setError('Connection rejected')
+          return
+        }
         console.log('Monitoring WebSocket disconnected, reconnecting...')
-        // Reconnect after 3 seconds
         reconnectTimeoutRef.current = window.setTimeout(() => connect(), 3000)
       }
 

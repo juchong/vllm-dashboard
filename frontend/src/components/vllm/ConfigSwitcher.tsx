@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../../services/api'
 import EnvEditor from './EnvEditor'
+import ModelConfigEditor from '../models/ModelConfigEditor'
 
 interface VLLMConfig {
   filename: string
@@ -9,6 +10,9 @@ interface VLLMConfig {
   model_type: string
   max_model_len: number
   tensor_parallel_size: number
+  num_experts?: number
+  quant_method?: string | null
+  architecture?: string
 }
 
 interface VLLMStatus {
@@ -23,6 +27,9 @@ interface ActiveConfig {
   config: any
   filename: string | null
   model_type: string
+  num_experts?: number
+  quant_method?: string | null
+  architecture?: string
 }
 
 const ConfigSwitcher = () => {
@@ -33,6 +40,10 @@ const ConfigSwitcher = () => {
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showEnvEditor, setShowEnvEditor] = useState(false)
+  const [editingModel, setEditingModel] = useState<string | null>(null)
+  const [editingConfig, setEditingConfig] = useState<any>(null)
+  const [editingConfigPath, setEditingConfigPath] = useState<string | null>(null)
+  const [editingDetectedType, setEditingDetectedType] = useState<string | undefined>(undefined)
 
   const fetchData = useCallback(async () => {
     try {
@@ -103,6 +114,24 @@ const ConfigSwitcher = () => {
     }
   }
 
+  const handleReload = async () => {
+    if (switching) return
+    
+    if (!confirm('Reload active configuration?\n\nThis re-reads the config YAML, regenerates env vars, and restarts the vLLM server.')) return
+    
+    setSwitching(true)
+    setError(null)
+    try {
+      await api.post('/vllm/reload')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      await fetchData()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to reload configuration')
+    } finally {
+      setSwitching(false)
+    }
+  }
+
   const handleStop = async () => {
     if (switching) return
     
@@ -133,6 +162,29 @@ const ConfigSwitcher = () => {
     }
   }
 
+  const handleOpenConfig = async (modelName: string) => {
+    try {
+      const response = await api.get(`/config/model/${modelName}`)
+      const data = response.data.data || {}
+      setEditingConfig(data.config || {})
+      setEditingConfigPath(data.config_path || null)
+      setEditingDetectedType(data.detected_model_type)
+      setEditingModel(modelName)
+    } catch (err) {
+      console.error('Failed to fetch model config:', err)
+      setEditingConfig({})
+      setEditingConfigPath(null)
+      setEditingDetectedType(undefined)
+      setEditingModel(modelName)
+    }
+  }
+
+  const handleSaveConfig = async (modelName: string, config: any) => {
+    await api.post('/config/save', { model_name: modelName, config })
+    await handleOpenConfig(modelName)
+    await fetchData()
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'running': return 'bg-green-100 text-green-800'
@@ -151,6 +203,30 @@ const ConfigSwitcher = () => {
     }
   }
 
+  const modelTypeBadge = (type: string) => {
+    switch (type) {
+      // MoE types
+      case 'moe_full': return { cls: 'badge-purple', label: 'MoE' }
+      case 'moe_fp8': return { cls: 'badge-purple', label: 'MoE FP8' }
+      case 'moe_fp4': return { cls: 'badge-amber', label: 'MoE FP4' }
+      // Dense types
+      case 'dense_full': return { cls: 'badge-blue', label: 'Dense' }
+      case 'dense_fp8': return { cls: 'badge-teal', label: 'Dense FP8' }
+      case 'dense_int8': return { cls: 'badge-green', label: 'Dense INT8' }
+      case 'dense_int4': return { cls: 'badge-green', label: 'Dense INT4' }
+      // Legacy fallback
+      case 'dense': return { cls: 'badge-blue', label: 'Dense' }
+      default: return { cls: 'badge-gray', label: type || 'Unknown' }
+    }
+  }
+
+  const metaDetail = (numExperts?: number, quantMethod?: string | null) => {
+    const parts: string[] = []
+    if (numExperts && numExperts > 0) parts.push(`${numExperts}E`)
+    if (quantMethod) parts.push(quantMethod.toUpperCase())
+    return parts.length > 0 ? parts.join(' · ') : null
+  }
+
   if (loading) {
     return (
       <div className="dashboard-card">
@@ -163,77 +239,124 @@ const ConfigSwitcher = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Status Card */}
       <div className="dashboard-card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-heading">vLLM Server Status</h2>
-          <div className="flex items-center gap-2">
-            {vllmStatus && (
-              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(vllmStatus.status)}`}>
-                {vllmStatus.status}
-              </span>
-            )}
-            {vllmStatus?.health && vllmStatus.health !== 'unknown' && (
-              <span className={`text-xs ${getHealthColor(vllmStatus.health)}`}>
-                ({vllmStatus.health})
-              </span>
-            )}
-          </div>
-        </div>
-
-        {activeConfig?.config && (
-          <div className="surface-secondary rounded-lg p-4 mb-4">
-            <div className="text-sm text-dim mb-1">Active Model</div>
-            <div className="font-semibold text-heading">{activeConfig.config.served_model_name}</div>
-            <div className="text-sm text-body mt-1">{activeConfig.config.model}</div>
-            <div className="flex flex-wrap gap-4 mt-2 text-xs text-dim">
-              <span>Context: {activeConfig.config.max_model_len ? `${(activeConfig.config.max_model_len / 1024).toFixed(0)}K` : 'N/A'}</span>
-              <span>TP: {activeConfig.config.tensor_parallel_size}</span>
-              <span>Type: {activeConfig.model_type}</span>
+        <h2 className="text-lg font-semibold text-heading mb-4">vLLM Server Status</h2>
+        
+        <div className="border border-default rounded-lg p-4">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h3 className="font-semibold text-heading">
+                {activeConfig?.config?.served_model_name || 'No model loaded'}
+              </h3>
+              {activeConfig?.config && (
+                <p className="text-sm text-dim">{activeConfig.config.model}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {vllmStatus && (
+                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(vllmStatus.status)}`}>
+                  {vllmStatus.status}
+                </span>
+              )}
+              {vllmStatus?.health && vllmStatus.health !== 'unknown' && (
+                <span className={`text-xs ${getHealthColor(vllmStatus.health)}`}>
+                  ({vllmStatus.health})
+                </span>
+              )}
             </div>
           </div>
-        )}
+          
+          {activeConfig?.config && (
+            <div className="flex flex-wrap items-center gap-4 text-xs text-dim mb-4">
+              <span>Context: {activeConfig.config.max_model_len ? `${(activeConfig.config.max_model_len / 1024).toFixed(0)}K` : 'N/A'}</span>
+              <span>TP: {activeConfig.config.tensor_parallel_size}</span>
+              <span className={`badge ${modelTypeBadge(activeConfig.model_type).cls}`}>
+                {modelTypeBadge(activeConfig.model_type).label}
+              </span>
+              {metaDetail(activeConfig.num_experts, activeConfig.quant_method) && (
+                <span>{metaDetail(activeConfig.num_experts, activeConfig.quant_method)}</span>
+              )}
+            </div>
+          )}
 
-        <div className="flex gap-2">
-          {vllmStatus?.running ? (
-            <>
+          <div className="flex gap-2 pt-3 border-t border-default">
+            {vllmStatus?.running ? (
+              <>
+                <button 
+                  onClick={handleReload}
+                  disabled={switching || !activeConfig?.filename}
+                  className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Re-read config YAML, regenerate env vars, and restart"
+                >
+                  {switching ? 'Working...' : 'Reload Config'}
+                </button>
+                <button 
+                  onClick={handleRestart}
+                  disabled={switching}
+                  className="dashboard-button-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Restart
+                </button>
+                <button 
+                  onClick={handleStop}
+                  disabled={switching}
+                  className="dashboard-button-danger btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Stop
+                </button>
+              </>
+            ) : (
               <button 
-                onClick={handleRestart}
+                onClick={handleStart}
                 disabled={switching}
                 className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {switching ? 'Working...' : 'Restart'}
+                {switching ? 'Starting...' : 'Start'}
               </button>
-              <button 
-                onClick={handleStop}
-                disabled={switching}
-                className="dashboard-button-danger btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Stop
-              </button>
-            </>
-          ) : (
+            )}
             <button 
-              onClick={handleStart}
-              disabled={switching}
-              className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setShowEnvEditor(true)}
+              className="dashboard-button-secondary btn-sm ml-auto"
             >
-              {switching ? 'Starting...' : 'Start'}
+              Environment
             </button>
-          )}
-          <button 
-            onClick={() => setShowEnvEditor(true)}
-            className="dashboard-button-secondary btn-sm ml-auto"
-          >
-            Environment
-          </button>
+          </div>
         </div>
       </div>
 
       {/* Environment Editor Modal */}
       {showEnvEditor && (
         <EnvEditor onClose={() => setShowEnvEditor(false)} />
+      )}
+
+      {/* Model Config Editor Modal */}
+      {editingModel && (
+        <div className="modal-overlay">
+          <div className="modal-container max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="modal-header">
+              <h2 className="modal-title">
+                Configuration: {editingModel}
+              </h2>
+              <button 
+                onClick={() => { setEditingModel(null); setEditingConfig(null); setEditingDetectedType(undefined) }} 
+                className="modal-close"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="modal-body flex-1 overflow-auto">
+              <ModelConfigEditor 
+                modelName={editingModel}
+                config={editingConfig}
+                configPath={editingConfigPath}
+                detectedModelType={editingDetectedType}
+                onSave={handleSaveConfig}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {error && (
@@ -271,29 +394,38 @@ const ConfigSwitcher = () => {
                         {isActive && (
                           <span className="badge bg-blue-500 text-white">Active</span>
                         )}
-                        <span className={`badge ${
-                          config.model_type === 'moe_fp8' ? 'badge-purple' : 'badge-gray'
-                        }`}>
-                          {config.model_type}
+                        <span className={`badge ${modelTypeBadge(config.model_type).cls}`}>
+                          {modelTypeBadge(config.model_type).label}
                         </span>
                       </div>
                       <div className="text-sm text-body mt-1 truncate">{config.model}</div>
                       <div className="flex gap-4 mt-2 text-xs text-dim">
                         <span>Context: {config.max_model_len ? `${(config.max_model_len / 1024).toFixed(0)}K` : 'N/A'}</span>
                         <span>TP: {config.tensor_parallel_size}</span>
+                        {metaDetail(config.num_experts, config.quant_method) && (
+                          <span>{metaDetail(config.num_experts, config.quant_method)}</span>
+                        )}
                         <span className="text-faint">{config.filename}</span>
                       </div>
                     </div>
                     
-                    {!isActive && (
+                    <div className="flex flex-col gap-1.5 ml-4 shrink-0">
+                      {!isActive && (
+                        <button
+                          onClick={() => handleSwitch(config.filename)}
+                          disabled={switching}
+                          className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {switching ? 'Switching...' : 'Activate'}
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleSwitch(config.filename)}
-                        disabled={switching}
-                        className="dashboard-button btn-sm ml-4 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => handleOpenConfig(config.model.replace(/^\/models\//, ''))}
+                        className="dashboard-button-secondary btn-sm whitespace-nowrap"
                       >
-                        {switching ? 'Switching...' : 'Activate'}
+                        Config
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               )
@@ -308,7 +440,7 @@ const ConfigSwitcher = () => {
             <div className="flex items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               <span className="ml-3 text-body">
-                Switching configuration...<br/>
+                Applying configuration...<br/>
                 <span className="text-sm text-dim">This may take a few minutes</span>
               </span>
             </div>

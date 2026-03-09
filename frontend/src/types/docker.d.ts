@@ -6,10 +6,3 @@ export interface ContainerStatus {
   image: string
   labels: Record<string, string>
 }
-
-export interface ContainerMetric {
-  cpu: any
-  memory: any
-  network: any
-  blkio: any
-}

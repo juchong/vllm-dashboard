@@ -1,11 +1,11 @@
-import useMonitoring from '../components/hooks/useMonitoring'
+import { useMonitoringContext } from '../contexts/MonitoringContext'
 import GPUMonitor from '../components/monitoring/GPUMonitor'
 import SystemStats from '../components/monitoring/SystemStats'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import Alert from '../components/common/Alert'
 
 const Monitoring = () => {
-  const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoring()
+  const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoringContext()
 
   return (
     <div className="space-y-6">

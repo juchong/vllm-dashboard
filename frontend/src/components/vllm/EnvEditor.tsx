@@ -1,240 +1,97 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../../services/api'
 
-interface EnvFile {
-  filename: string
-  description: string
-  editable: boolean
-  exists: boolean
-}
-
 interface EnvEditorProps {
   onClose: () => void
 }
 
-const EnvEditor = ({ onClose }: EnvEditorProps) => {
-  const [envFiles, setEnvFiles] = useState<EnvFile[]>([])
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [content, setContent] = useState<string>('')
-  const [originalContent, setOriginalContent] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+function parseEnvContent(raw: string): Array<{ key: string; value: string }> {
+  const pairs: Array<{ key: string; value: string }> = []
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq === -1) continue
+    pairs.push({ key: trimmed.slice(0, eq), value: trimmed.slice(eq + 1) })
+  }
+  return pairs
+}
 
-  const fetchEnvFiles = useCallback(async () => {
+const EnvEditor = ({ onClose }: EnvEditorProps) => {
+  const [vars, setVars] = useState<Array<{ key: string; value: string }>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchActiveEnv = useCallback(async () => {
     try {
-      const response = await api.get('/vllm/env')
-      setEnvFiles(response.data.data || [])
+      const response = await api.get('/vllm/env/env.active')
+      const raw = response.data.data?.content || ''
+      setVars(parseEnvContent(raw))
     } catch (err) {
-      setError('Failed to fetch environment files')
+      setError('Failed to fetch active environment')
       console.error(err)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  const fetchFileContent = useCallback(async (filename: string) => {
-    if (content !== originalContent) {
-      if (!confirm('You have unsaved changes. Discard and switch files?')) {
-        return
-      }
-    }
-    setLoading(true)
-    setError(null)
-    setSuccess(null)
-    
-    try {
-      const response = await api.get(`/vllm/env/${filename}`)
-      const fileContent = response.data.data?.content || ''
-      setContent(fileContent)
-      setOriginalContent(fileContent)
-      setSelectedFile(filename)
-    } catch (err) {
-      setError(`Failed to load ${filename}`)
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }, [content, originalContent])
-
-  const handleSave = async () => {
-    if (!selectedFile) return
-    
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-    
-    try {
-      await api.put(`/vllm/env/${selectedFile}`, { content })
-      setOriginalContent(content)
-      setSuccess(`Successfully saved ${selectedFile}`)
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(null), 3000)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || `Failed to save ${selectedFile}`)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleReset = () => {
-    setContent(originalContent)
-  }
-
-  const hasChanges = content !== originalContent
-
   useEffect(() => {
-    fetchEnvFiles()
-  }, [fetchEnvFiles])
-
-  // Auto-select env.hardware on load
-  useEffect(() => {
-    if (envFiles.length > 0 && !selectedFile) {
-      const hardware = envFiles.find(f => f.filename === 'env.hardware')
-      if (hardware) {
-        fetchFileContent('env.hardware')
-      }
-    }
-  }, [envFiles, selectedFile, fetchFileContent])
-
-  const selectedFileInfo = envFiles.find(f => f.filename === selectedFile)
+    fetchActiveEnv()
+  }, [fetchActiveEnv])
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="surface-primary rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold text-heading">Environment Configuration</h2>
-          <button 
-            onClick={onClose}
-            className="text-faint hover:text-gray-600 dark:hover:text-gray-300 text-xl"
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* File List Sidebar */}
-          <div className="w-64 border-r surface-secondary p-4 overflow-y-auto">
-            <h3 className="text-sm font-medium text-body mb-3">Environment Files</h3>
-            <div className="space-y-2">
-              {envFiles.map((file) => (
-                <button
-                  key={file.filename}
-                  onClick={() => fetchFileContent(file.filename)}
-                  className={`w-full text-left p-2 rounded text-sm transition-colors ${
-                    selectedFile === file.filename
-                      ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                      : 'surface-hover text-body'
-                  }`}
-                >
-                  <div className="font-medium">{file.filename}</div>
-                  <div className="text-xs text-dim mt-0.5">{file.description}</div>
-                  {!file.editable && (
-                    <span className="inline-block mt-1 px-1.5 py-0.5 text-xs bg-gray-200 dark:bg-gray-600 text-body rounded">
-                      read-only
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            
-            <div className="mt-6 p-3 bg-blue-50 rounded text-xs text-blue-800">
-              <strong>How it works:</strong>
-              <ul className="mt-1 space-y-1 list-disc list-inside">
-                <li><code>env.hardware</code> applies to all models</li>
-                <li><code>env.moe-fp8</code> applies to FP8 MoE models</li>
-                <li><code>env.dense</code> applies to dense models</li>
-                <li><code>env.active</code> is auto-generated when switching configs</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Editor Area */}
-          <div className="flex-1 flex flex-col p-4 overflow-hidden">
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-dim">Loading...</div>
-              </div>
-            ) : selectedFile ? (
-              <>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="font-medium text-heading">{selectedFile}</span>
-                    {hasChanges && (
-                      <span className="ml-2 text-xs text-orange-600">(unsaved changes)</span>
-                    )}
-                  </div>
-                  {selectedFileInfo?.editable && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleReset}
-                        disabled={!hasChanges || saving}
-                        className="px-3 py-1 text-sm text-body surface-hover rounded disabled:opacity-50"
-                      >
-                        Reset
-                      </button>
-                      <button
-                        onClick={handleSave}
-                        disabled={!hasChanges || saving}
-                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : 'Save'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {error && (
-                  <div className="mb-2 p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="mb-2 p-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded">
-                    {success}
-                  </div>
-                )}
-
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  disabled={!selectedFileInfo?.editable}
-                  className={`flex-1 w-full border rounded p-3 font-mono text-sm resize-none ${
-                    selectedFileInfo?.editable 
-                      ? 'border-default surface-primary' 
-                      : 'border-default surface-secondary text-body'
-                  }`}
-                  spellCheck={false}
-                  placeholder={selectedFileInfo?.editable 
-                    ? "# Environment variables (KEY=VALUE format)\n# Lines starting with # are comments"
-                    : "This file is auto-generated and cannot be edited directly."
-                  }
-                />
-
-                <div className="mt-2 text-xs text-dim">
-                  {selectedFileInfo?.editable ? (
-                    <>Format: <code>KEY=VALUE</code> (one per line). Lines starting with <code>#</code> are comments.</>
-                  ) : (
-                    <>This file is generated from <code>env.hardware</code> + model-type env file when switching configurations.</>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-full text-dim">
-                Select a file from the sidebar
-              </div>
+    <div className="modal-overlay">
+      <div className="modal-container max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="modal-header">
+          <div className="flex items-center gap-3">
+            <h2 className="modal-title">Active Environment Variables</h2>
+            {!loading && !error && (
+              <span className="badge badge-gray">{vars.length} variable{vars.length !== 1 ? 's' : ''}</span>
             )}
           </div>
+          <button onClick={onClose} className="modal-close">&times;</button>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t surface-secondary text-xs text-dim">
-          <strong>Note:</strong> Changes to env files will take effect on the next config switch or vLLM restart.
+        <div className="modal-body flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-dim">Loading...</div>
+            </div>
+          ) : error ? (
+            <div className="alert alert-error text-sm">{error}</div>
+          ) : vars.length === 0 ? (
+            <div className="text-dim text-sm text-center py-8">
+              No environment variables configured for the active model.
+            </div>
+          ) : (
+            <div className="border border-default rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="surface-secondary border-b border-default">
+                    <th className="text-left px-3 py-2 text-dim font-medium">Variable</th>
+                    <th className="text-left px-3 py-2 text-dim font-medium">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {vars.map(({ key, value }) => (
+                    <tr key={key} className="surface-hover">
+                      <td className="px-3 py-2 font-mono text-xs text-heading whitespace-nowrap">{key}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-body break-all">{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <span className="text-xs text-dim mr-auto">
+            Defined in the active model's configuration. Use Reload Config to apply changes.
+          </span>
+          <button onClick={onClose} className="dashboard-button-secondary btn-sm">
+            Close
+          </button>
         </div>
       </div>
     </div>
