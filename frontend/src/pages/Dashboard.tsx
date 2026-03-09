@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMonitoringContext } from '../contexts/MonitoringContext'
+import { useInstanceContext } from '../contexts/InstanceContext'
 import ContainerLogs from '../components/containers/ContainerLogs'
 import GPUMonitor from '../components/monitoring/GPUMonitor'
 import SystemStats from '../components/monitoring/SystemStats'
@@ -8,6 +9,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner'
 
 const Dashboard = () => {
   const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoringContext()
+  const { selectedInstance } = useInstanceContext()
   const [showLogs, setShowLogs] = useState(false)
   const [selectedContainer, setSelectedContainer] = useState('')
 
@@ -22,7 +24,7 @@ const Dashboard = () => {
         <h1 className="text-2xl font-bold text-heading">Dashboard</h1>
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => handleViewLogs('vllm')}
+            onClick={() => handleViewLogs(selectedInstance?.container_name || 'vllm')}
             className="dashboard-button-secondary text-sm"
           >
             View Logs
@@ -36,13 +38,11 @@ const Dashboard = () => {
       {loading && <LoadingSpinner message="Connecting to monitoring..." />}
       {error && <div className="alert alert-error">Error: {error}</div>}
 
-      {/* GPU and System Monitoring */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <GPUMonitor metrics={gpuMetrics} />
         {systemMetrics && <SystemStats metrics={systemMetrics} />}
       </div>
 
-      {/* Model Configuration Switcher */}
       <ConfigSwitcher />
 
       {showLogs && (

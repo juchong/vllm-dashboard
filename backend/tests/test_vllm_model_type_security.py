@@ -32,14 +32,15 @@ def test_resolve_model_type_rejects_path_traversal(vllm_service):
 
 
 def test_resolve_model_type_accepts_valid(vllm_service):
-    assert vllm_service._resolve_model_type({"model_type": "dense"}) == "dense"
+    assert vllm_service._resolve_model_type({"model_type": "dense"}) == "dense_full"
+    assert vllm_service._resolve_model_type({"model_type": "dense_full"}) == "dense_full"
     assert vllm_service._resolve_model_type({"model_type": "moe_fp8"}) == "moe_fp8"
     assert vllm_service._resolve_model_type({"model_type": "moe_fp4"}) == "moe_fp4"
 
 
 def test_resolve_model_type_falls_back_to_dense(vllm_service):
-    """Without explicit model_type and no config.json, falls back to dense."""
-    assert vllm_service._resolve_model_type({"model": "some/unknown-model"}) == "dense"
+    """Without explicit model_type and no config.json, falls back to dense_full."""
+    assert vllm_service._resolve_model_type({"model": "some/unknown-model"}) == "dense_full"
 
 
 def test_validate_vllm_image_rejects_shell_chars(vllm_service):

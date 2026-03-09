@@ -190,7 +190,7 @@ class DownloadManager:
                                     task.progress = "Download complete"
                                     task.completed_at = utc_now().isoformat()
                                     logger.info(f"Download completed: {task.model_name}")
-                                    if self.config_service and task.download_path:
+                                    if self.config_service and task.download_path and os.path.exists(task.download_path):
                                         try:
                                             self.config_service.generate_config_for_model(
                                                 task.model_name, task.download_path
@@ -378,6 +378,15 @@ class DownloadManager:
                 for tid, task in self.downloads.items()
                 if task.status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING)
             ]
+
+    def is_downloading(self, model_name: str) -> bool:
+        """Check if a model is currently being downloaded."""
+        with self._lock:
+            return any(
+                t.model_name == model_name
+                and t.status in (DownloadStatus.PENDING, DownloadStatus.DOWNLOADING)
+                for t in self.downloads.values()
+            )
 
     def get_all_downloads(self) -> List[Dict[str, Any]]:
         with self._lock:

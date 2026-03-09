@@ -11,6 +11,7 @@ import {
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
 import authService from '../../services/auth'
+import InstanceSelector from './InstanceSelector'
 
 function getInitialTheme(): 'dark' | 'light' {
   const stored = localStorage.getItem('theme')
@@ -61,6 +62,7 @@ const Sidebar = () => {
         </button>
       </div>
 
+      <InstanceSelector />
       <nav className="mt-2 flex-1">
         {navItems.map((item) => {
           const Icon = item.icon

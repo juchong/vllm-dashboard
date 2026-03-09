@@ -2,6 +2,7 @@
 Model management API endpoints
 """
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,7 +14,21 @@ from rate_limit import enforce_heavy_api_limits
 from security import audit_event
 from services.hf_service import HuggingFaceService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _check_model_in_use(request: Request, model_name: str) -> None:
+    """Block delete/rename on models active in any instance or being downloaded."""
+    registry = getattr(request.app.state, 'instance_registry', None)
+    if registry:
+        instances = registry.get_instances_using_model(model_name)
+        if instances:
+            raise HTTPException(400, f"Model in use by instance(s): {', '.join(instances)}")
+
+    download_manager = getattr(request.app.state, 'download_manager', None)
+    if download_manager and download_manager.is_downloading(model_name):
+        raise HTTPException(400, "Model is currently being downloaded")
 
 
 class ModelDownloadRequest(BaseModel):
@@ -109,16 +124,18 @@ async def list_models(request: Request, current_user: User = Depends(get_current
 
 @router.delete("/{model_path:path}")
 async def delete_model(request: Request, model_path: str, current_user: User = Depends(require_role("admin"))):
-    """Delete a model - runs in thread pool to avoid blocking on large models"""
+    """Delete a model - blocked if in use by any instance or being downloaded"""
     import asyncio
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         request.state.current_user = current_user
-        # Run blocking deletion in thread pool to avoid blocking event loop
+        _check_model_in_use(request, model_path)
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, hf_service.delete_model, model_path)
         audit_event(request, "delete_model", model_path, "success")
         return {"status": "success", "message": result}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -128,16 +145,19 @@ async def delete_model(request: Request, model_path: str, current_user: User = D
 
 @router.post("/rename")
 async def rename_model(request: Request, rename_data: ModelRenameRequest, current_user: User = Depends(require_role("admin"))):
-    """Rename a model"""
+    """Rename a model - blocked if in use by any instance or being downloaded"""
     hf_service: HuggingFaceService = request.app.state.hf_service
     try:
         request.state.current_user = current_user
+        _check_model_in_use(request, rename_data.old_path)
         result = hf_service.rename_model(
             old_path=rename_data.old_path,
             new_path=rename_data.new_path,
         )
         audit_event(request, "rename_model", rename_data.old_path, "success", {"new_path": rename_data.new_path})
         return {"status": "success", "message": result}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

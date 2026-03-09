@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../../services/api'
 
 interface EnvEditorProps {
+  instanceId: string
   onClose: () => void
 }
 
@@ -17,14 +18,14 @@ function parseEnvContent(raw: string): Array<{ key: string; value: string }> {
   return pairs
 }
 
-const EnvEditor = ({ onClose }: EnvEditorProps) => {
+const EnvEditor = ({ instanceId, onClose }: EnvEditorProps) => {
   const [vars, setVars] = useState<Array<{ key: string; value: string }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchActiveEnv = useCallback(async () => {
     try {
-      const response = await api.get('/vllm/env/env.active')
+      const response = await api.get(`/vllm/${instanceId}/env/env.active`)
       const raw = response.data.data?.content || ''
       setVars(parseEnvContent(raw))
     } catch (err) {
@@ -33,7 +34,7 @@ const EnvEditor = ({ onClose }: EnvEditorProps) => {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [instanceId])
 
   useEffect(() => {
     fetchActiveEnv()

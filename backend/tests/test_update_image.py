@@ -75,8 +75,8 @@ class TestUpdateImage:
         """update_image should return error if pull fails."""
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
-                returncode=1, 
-                stdout="", 
+                returncode=1,
+                stdout="",
                 stderr="Error: pull failed"
             )
             result = vllm_service.update_image()
@@ -111,7 +111,7 @@ class TestUpdateImage:
 
 
 class TestUpdateImageAPI:
-    """Tests for /api/vllm/update-image endpoint."""
+    """Tests for /api/vllm/{instance_id}/update-image endpoint."""
 
     @pytest.fixture
     def client(self, monkeypatch, shared_config_tmp):
@@ -155,7 +155,7 @@ class TestUpdateImageAPI:
         headers = {"Host": "localhost", "X-CSRF-Token": csrf}
 
         r2 = client.post(
-            "/api/vllm/update-image",
+            "/api/vllm/default/update-image",
             cookies=cookies,
             headers=headers
         )
@@ -165,6 +165,6 @@ class TestUpdateImageAPI:
         """update-image endpoint requires authentication (CSRF or auth rejection)."""
         with pytest.raises(Exception):
             client.post(
-                "/api/vllm/update-image",
+                "/api/vllm/default/update-image",
                 headers={"Host": "localhost"}
             )

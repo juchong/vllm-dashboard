@@ -11,6 +11,7 @@ import yaml
 import logging
 
 from utils import ensure_within_dir
+from services.instance_registry import atomic_write_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +22,15 @@ def sanitize_config_filename(model_name: str) -> str:
 
 
 class ConfigService:
-    def __init__(self):
-        self.config_dir = os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs")
+    def __init__(self, config_dir: str | None = None):
+        self.config_dir = config_dir or os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs")
 
     def save_config(self, model_name: str, config: Dict[str, Any]) -> str:
         """Save configuration for a model. Returns the config file path."""
         safe_name = sanitize_config_filename(model_name)
         config_path = os.path.join(self.config_dir, f"{safe_name}.yaml")
 
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        atomic_write_yaml(config_path, config)
 
         return config_path
 
@@ -47,7 +47,7 @@ class ConfigService:
                 pass
 
         for filename in os.listdir(self.config_dir):
-            if not filename.endswith('.yaml') or filename in ('active.yaml',):
+            if not filename.endswith('.yaml') or filename in ('active.yaml', 'instances.yaml'):
                 continue
             config_path = os.path.join(self.config_dir, filename)
             try:
@@ -101,8 +101,7 @@ class ConfigService:
             config["model"] = model_name
             short_name = model_name.split("/")[-1] if "/" in model_name else model_name
             config["served_model_name"] = config.get("served_model_name", short_name)
-            with open(real_path, "w") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            atomic_write_yaml(real_path, config)
         except (yaml.YAMLError, IOError, OSError) as e:
             raise ValueError(f"Failed to update config: {e}")
         return f"Associated {model_name} with {config_path}"
@@ -111,7 +110,7 @@ class ConfigService:
         """List all configs with their model names by scanning YAML files."""
         pairs = []
         for filename in os.listdir(self.config_dir):
-            if not filename.endswith('.yaml') or filename in ('active.yaml',):
+            if not filename.endswith('.yaml') or filename in ('active.yaml', 'instances.yaml'):
                 continue
             config_path = os.path.join(self.config_dir, filename)
             try:
@@ -166,7 +165,6 @@ class ConfigService:
             "model_type": model_type,
             "served_model_name": short_name,
             "host": "0.0.0.0",
-            "port": 8000,
             "download_dir": "/root/.cache/huggingface",
             "dtype": "auto" if is_quantized else "bfloat16",
             "tensor_parallel_size": 2,
@@ -206,10 +204,18 @@ class ConfigService:
             config["enable_auto_tool_choice"] = True
 
         try:
-            with open(config_path, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            atomic_write_yaml(config_path, config)
             logger.info(f"Auto-generated config for {model_name} at {config_path} (type={model_type})")
             return config_path
         except Exception as e:
             logger.error(f"Failed to auto-generate config for {model_name}: {e}")
             return None
+
+    def regenerate_config_for_model(self, model_name: str, model_dir: str) -> Optional[str]:
+        """Delete existing config and regenerate from model metadata."""
+        safe_name = sanitize_config_filename(model_name)
+        config_path = os.path.join(self.config_dir, f"{safe_name}.yaml")
+        if os.path.exists(config_path):
+            os.remove(config_path)
+            logger.info(f"Removed existing config for {model_name} before regeneration")
+        return self.generate_config_for_model(model_name, model_dir)

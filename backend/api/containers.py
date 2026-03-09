@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from deps import get_current_user, require_role
 from models.auth_models import User
-from rate_limit import enforce_heavy_api_limits
+from rate_limit import enforce_heavy_api_limits, enforce_read_api_limits
 from services.docker_service import DockerService
 from security import audit_event
 
@@ -105,7 +105,7 @@ async def get_container_logs(
     
     tail = max(1, min(tail, 10000))
     try:
-        enforce_heavy_api_limits(request, "container_logs")
+        enforce_read_api_limits(request, "container_logs")
         if follow:
             # Streaming response for real-time logs
             return docker_service.stream_container_logs(container_name, tail=tail)

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../../services/api'
 import EnvEditor from './EnvEditor'
 import ModelConfigEditor from '../models/ModelConfigEditor'
+import { useInstanceContext } from '../../contexts/InstanceContext'
 
 interface VLLMConfig {
   filename: string
@@ -33,11 +34,13 @@ interface ActiveConfig {
 }
 
 const ConfigSwitcher = () => {
+  const { selectedInstanceId } = useInstanceContext()
   const [configs, setConfigs] = useState<VLLMConfig[]>([])
   const [activeConfig, setActiveConfig] = useState<ActiveConfig | null>(null)
   const [vllmStatus, setVllmStatus] = useState<VLLMStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [switching, setSwitching] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showEnvEditor, setShowEnvEditor] = useState(false)
   const [editingModel, setEditingModel] = useState<string | null>(null)
@@ -48,9 +51,9 @@ const ConfigSwitcher = () => {
   const fetchData = useCallback(async () => {
     try {
       const [configsRes, activeRes, statusRes] = await Promise.all([
-        api.get('/vllm/configs'),
-        api.get('/vllm/active'),
-        api.get('/vllm/status'),
+        api.get(`/vllm/${selectedInstanceId}/configs`),
+        api.get(`/vllm/${selectedInstanceId}/active`),
+        api.get(`/vllm/${selectedInstanceId}/status`),
       ])
       
       setConfigs(configsRes.data.data || [])
@@ -63,35 +66,28 @@ const ConfigSwitcher = () => {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedInstanceId])
 
   useEffect(() => {
+    setLoading(true)
     fetchData()
-    // Refresh status every 10 seconds
     const interval = setInterval(fetchData, 10000)
     return () => clearInterval(interval)
   }, [fetchData])
 
   const handleSwitch = async (configFilename: string) => {
     if (switching) return
-    
     const config = configs.find(c => c.filename === configFilename)
     if (!config) return
-    
-    if (!confirm(`Switch to ${config.name}?\n\nThis will restart the vLLM server and may take a few minutes.`)) {
-      return
-    }
+    if (!confirm(`Activate ${config.name}?\n\nThis sets the active configuration. Use Start/Restart to apply it to the server.`)) return
     
     setSwitching(true)
     setError(null)
-    
     try {
-      await api.post('/vllm/switch', { config_filename: configFilename })
-      // Wait a moment for container to start recreating
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      await api.post(`/vllm/${selectedInstanceId}/switch`, { config_filename: configFilename })
       await fetchData()
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to switch configuration')
+      setError(err.response?.data?.detail || 'Failed to activate configuration')
     } finally {
       setSwitching(false)
     }
@@ -99,12 +95,10 @@ const ConfigSwitcher = () => {
 
   const handleRestart = async () => {
     if (switching) return
-    
     if (!confirm('Restart vLLM server?')) return
-    
     setSwitching(true)
     try {
-      await api.post('/vllm/restart')
+      await api.post(`/vllm/${selectedInstanceId}/restart`)
       await new Promise(resolve => setTimeout(resolve, 2000))
       await fetchData()
     } catch (err: any) {
@@ -116,13 +110,11 @@ const ConfigSwitcher = () => {
 
   const handleReload = async () => {
     if (switching) return
-    
     if (!confirm('Reload active configuration?\n\nThis re-reads the config YAML, regenerates env vars, and restarts the vLLM server.')) return
-    
     setSwitching(true)
     setError(null)
     try {
-      await api.post('/vllm/reload')
+      await api.post(`/vllm/${selectedInstanceId}/reload`)
       await new Promise(resolve => setTimeout(resolve, 2000))
       await fetchData()
     } catch (err: any) {
@@ -134,12 +126,10 @@ const ConfigSwitcher = () => {
 
   const handleStop = async () => {
     if (switching) return
-    
     if (!confirm('Stop vLLM server?')) return
-    
     setSwitching(true)
     try {
-      await api.post('/vllm/stop')
+      await api.post(`/vllm/${selectedInstanceId}/stop`)
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to stop')
@@ -150,10 +140,9 @@ const ConfigSwitcher = () => {
 
   const handleStart = async () => {
     if (switching) return
-    
     setSwitching(true)
     try {
-      await api.post('/vllm/start')
+      await api.post(`/vllm/${selectedInstanceId}/start`)
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start')
@@ -164,25 +153,25 @@ const ConfigSwitcher = () => {
 
   const handleUpdateImage = async () => {
     if (switching) return
-
     if (!confirm('Pull latest vLLM image and restart?\n\nThis may take several minutes depending on your connection speed.')) return
-
     setSwitching(true)
+    setBusyAction('update-image')
     setError(null)
     try {
-      await api.post('/vllm/update-image')
+      await api.post(`/vllm/${selectedInstanceId}/update-image`)
       await new Promise(resolve => setTimeout(resolve, 2000))
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update image')
     } finally {
       setSwitching(false)
+      setBusyAction(null)
     }
   }
 
   const handleOpenConfig = async (modelName: string) => {
     try {
-      const response = await api.get(`/config/model/${modelName}`)
+      const response = await api.get(`/config/${selectedInstanceId}/model/${modelName}`)
       const data = response.data.data || {}
       setEditingConfig(data.config || {})
       setEditingConfigPath(data.config_path || null)
@@ -198,8 +187,17 @@ const ConfigSwitcher = () => {
   }
 
   const handleSaveConfig = async (modelName: string, config: any) => {
-    await api.post('/config/save', { model_name: modelName, config })
+    await api.post(`/config/${selectedInstanceId}/save`, { model_name: modelName, config })
     await handleOpenConfig(modelName)
+    await fetchData()
+  }
+
+  const handleRegenerateConfig = async (modelName: string) => {
+    const response = await api.post(`/config/${selectedInstanceId}/regenerate`, { model_name: modelName })
+    const data = response.data.data || {}
+    setEditingConfig(data.config || {})
+    setEditingConfigPath(data.config_path || null)
+    setEditingDetectedType(data.detected_model_type)
     await fetchData()
   }
 
@@ -223,16 +221,13 @@ const ConfigSwitcher = () => {
 
   const modelTypeBadge = (type: string) => {
     switch (type) {
-      // MoE types
       case 'moe_full': return { cls: 'badge-purple', label: 'MoE' }
       case 'moe_fp8': return { cls: 'badge-purple', label: 'MoE FP8' }
       case 'moe_fp4': return { cls: 'badge-amber', label: 'MoE FP4' }
-      // Dense types
       case 'dense_full': return { cls: 'badge-blue', label: 'Dense' }
       case 'dense_fp8': return { cls: 'badge-teal', label: 'Dense FP8' }
       case 'dense_int8': return { cls: 'badge-green', label: 'Dense INT8' }
       case 'dense_int4': return { cls: 'badge-green', label: 'Dense INT4' }
-      // Legacy fallback
       case 'dense': return { cls: 'badge-blue', label: 'Dense' }
       default: return { cls: 'badge-gray', label: type || 'Unknown' }
     }
@@ -258,7 +253,7 @@ const ConfigSwitcher = () => {
 
   return (
     <div className="space-y-4">
-      {/* Status Card */}
+      {(vllmStatus?.status && vllmStatus.status !== 'not_found') || activeConfig?.config ? (
       <div className="dashboard-card">
         <h2 className="text-lg font-semibold text-heading mb-4">vLLM Server Status</h2>
         
@@ -302,75 +297,68 @@ const ConfigSwitcher = () => {
           <div className="flex gap-2 pt-3 border-t border-default">
             {vllmStatus?.running ? (
               <>
-                <button 
-                  onClick={handleReload}
-                  disabled={switching || !activeConfig?.filename}
+                <button onClick={handleReload} disabled={switching || !activeConfig?.filename}
                   className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Re-read config YAML, regenerate env vars, and restart"
-                >
+                  title="Re-read config YAML, regenerate env vars, and restart">
                   {switching ? 'Working...' : 'Reload Config'}
                 </button>
-                <button 
-                  onClick={handleUpdateImage}
-                  disabled={switching}
-                  className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Pull latest image and restart"
-                >
-                  Update Image
-                </button>
-                <button 
-                  onClick={handleRestart}
-                  disabled={switching}
-                  className="dashboard-button-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={handleRestart} disabled={switching}
+                  className="dashboard-button-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed">
                   Restart
                 </button>
-                <button 
-                  onClick={handleStop}
-                  disabled={switching}
-                  className="dashboard-button-danger btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button onClick={handleStop} disabled={switching}
+                  className="dashboard-button-danger btn-sm disabled:opacity-50 disabled:cursor-not-allowed">
                   Stop
                 </button>
               </>
             ) : (
-              <button 
-                onClick={handleStart}
-                disabled={switching}
-                className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <button onClick={handleStart} disabled={switching}
+                className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed">
                 {switching ? 'Starting...' : 'Start'}
               </button>
             )}
-            <button 
-              onClick={() => setShowEnvEditor(true)}
-              className="dashboard-button-secondary btn-sm ml-auto"
-            >
+            <button onClick={handleUpdateImage} disabled={switching}
+              className="dashboard-button-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Pull latest nightly image">
+              Update Image
+            </button>
+            <button onClick={() => setShowEnvEditor(true)}
+              className="dashboard-button-secondary btn-sm ml-auto">
               Environment
             </button>
           </div>
         </div>
       </div>
-
-      {/* Environment Editor Modal */}
-      {showEnvEditor && (
-        <EnvEditor onClose={() => setShowEnvEditor(false)} />
+      ) : (
+      <div className="dashboard-card">
+        <h2 className="text-lg font-semibold text-heading mb-4">vLLM Server Status</h2>
+        <div className="text-dim text-center py-4">
+          No active configuration. Select a configuration below to activate.
+        </div>
+        <div className="flex gap-2 pt-3 border-t border-default">
+          <button onClick={handleUpdateImage} disabled={switching}
+            className="dashboard-button-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Pull latest nightly image">
+            Update Image
+          </button>
+          <button onClick={() => setShowEnvEditor(true)}
+            className="dashboard-button-secondary btn-sm ml-auto">
+            Environment
+          </button>
+        </div>
+      </div>
       )}
 
-      {/* Model Config Editor Modal */}
+      {showEnvEditor && (
+        <EnvEditor instanceId={selectedInstanceId} onClose={() => setShowEnvEditor(false)} />
+      )}
+
       {editingModel && (
         <div className="modal-overlay">
           <div className="modal-container max-w-2xl max-h-[80vh] flex flex-col">
             <div className="modal-header">
-              <h2 className="modal-title">
-                Configuration: {editingModel}
-              </h2>
-              <button 
-                onClick={() => { setEditingModel(null); setEditingConfig(null); setEditingDetectedType(undefined) }} 
-                className="modal-close"
-              >
-                &times;
-              </button>
+              <h2 className="modal-title">Configuration: {editingModel}</h2>
+              <button onClick={() => { setEditingModel(null); setEditingConfig(null); setEditingDetectedType(undefined) }} className="modal-close">&times;</button>
             </div>
             <div className="modal-body flex-1 overflow-auto">
               <ModelConfigEditor 
@@ -379,19 +367,15 @@ const ConfigSwitcher = () => {
                 configPath={editingConfigPath}
                 detectedModelType={editingDetectedType}
                 onSave={handleSaveConfig}
+                onRegenerate={handleRegenerateConfig}
               />
             </div>
           </div>
         </div>
       )}
 
-      {error && (
-        <div className="alert alert-error">
-          {error}
-        </div>
-      )}
+      {error && <div className="alert alert-error">{error}</div>}
 
-      {/* Available Configurations */}
       <div className="dashboard-card">
         <h2 className="text-lg font-semibold text-heading mb-4">Available Configurations</h2>
         
@@ -403,23 +387,16 @@ const ConfigSwitcher = () => {
           <div className="space-y-3">
             {configs.map((config) => {
               const isActive = activeConfig?.filename === config.filename
-              
               return (
-                <div 
-                  key={config.filename}
+                <div key={config.filename}
                   className={`border rounded-lg p-4 transition-colors ${
-                    isActive 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' 
-                      : 'border-default hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}
-                >
+                    isActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-default hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-heading">{config.name}</h3>
-                        {isActive && (
-                          <span className="badge bg-blue-500 text-white">Active</span>
-                        )}
+                        {isActive && <span className="badge bg-blue-500 text-white">Active</span>}
                         <span className={`badge ${modelTypeBadge(config.model_type).cls}`}>
                           {modelTypeBadge(config.model_type).label}
                         </span>
@@ -434,21 +411,15 @@ const ConfigSwitcher = () => {
                         <span className="text-faint">{config.filename}</span>
                       </div>
                     </div>
-                    
                     <div className="flex flex-col gap-1.5 ml-4 shrink-0">
                       {!isActive && (
-                        <button
-                          onClick={() => handleSwitch(config.filename)}
-                          disabled={switching}
-                          className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                        >
+                        <button onClick={() => handleSwitch(config.filename)} disabled={switching}
+                          className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
                           {switching ? 'Switching...' : 'Activate'}
                         </button>
                       )}
-                      <button
-                        onClick={() => handleOpenConfig(config.model.replace(/^\/models\//, ''))}
-                        className="dashboard-button-secondary btn-sm whitespace-nowrap"
-                      >
+                      <button onClick={() => handleOpenConfig(config.model.replace(/^\/models\//, ''))}
+                        className="dashboard-button-secondary btn-sm whitespace-nowrap">
                         Config
                       </button>
                     </div>
@@ -466,8 +437,10 @@ const ConfigSwitcher = () => {
             <div className="flex items-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               <span className="ml-3 text-body">
-                Applying configuration...<br/>
-                <span className="text-sm text-dim">This may take a few minutes</span>
+                {busyAction === 'update-image' ? 'Pulling latest vLLM image...' : 'Applying configuration...'}<br/>
+                <span className="text-sm text-dim">
+                  {busyAction === 'update-image' ? 'This may take several minutes' : 'This may take a few minutes'}
+                </span>
               </span>
             </div>
           </div>

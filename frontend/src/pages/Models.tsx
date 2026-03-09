@@ -6,6 +6,7 @@ import ModelConfigEditor from '../components/models/ModelConfigEditor'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import Alert from '../components/common/Alert'
 import { ModelInfo } from '../types/models'
+import { useInstanceContext } from '../contexts/InstanceContext'
 
 interface ActiveDownload {
   id: string
@@ -26,6 +27,7 @@ interface ActiveDownload {
 }
 
 const Models = () => {
+  const { selectedInstanceId } = useInstanceContext()
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelConfig, setModelConfig] = useState<any>(null)
@@ -75,7 +77,7 @@ const Models = () => {
 
   const fetchModelConfig = async (modelName: string) => {
     try {
-      const response = await api.get(`/config/model/${modelName}`)
+      const response = await api.get(`/config/${selectedInstanceId}/model/${modelName}`)
       const data = response.data.data || {}
       setModelConfig(data.config || {})
       setModelConfigPath(data.config_path || null)
@@ -144,8 +146,16 @@ const Models = () => {
   }
 
   const handleSaveConfig = async (modelName: string, config: any) => {
-    await api.post('/config/save', { model_name: modelName, config })
+    await api.post(`/config/${selectedInstanceId}/save`, { model_name: modelName, config })
     await fetchModelConfig(modelName)
+  }
+
+  const handleRegenerateConfig = async (modelName: string) => {
+    const response = await api.post(`/config/${selectedInstanceId}/regenerate`, { model_name: modelName })
+    const data = response.data.data || {}
+    setModelConfig(data.config || {})
+    setModelConfigPath(data.config_path || null)
+    setDetectedModelType(data.detected_model_type)
   }
 
   const formatElapsedTime = (seconds: number) => {
@@ -290,6 +300,7 @@ const Models = () => {
                 configPath={modelConfigPath}
                 detectedModelType={detectedModelType}
                 onSave={handleSaveConfig}
+                onRegenerate={handleRegenerateConfig}
               />
             </div>
           </div>

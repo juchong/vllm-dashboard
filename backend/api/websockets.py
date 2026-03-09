@@ -76,7 +76,8 @@ class ConnectionManager:
         self, 
         websocket: WebSocket, 
         gpu_service: GPUService,
-        docker_service: DockerService
+        docker_service: DockerService,
+        known_container_names: set = None
     ):
         """Start combined monitoring and send updates via WebSocket"""
         import os
@@ -95,7 +96,9 @@ class ConnectionManager:
                     system_metrics = gpu_service.get_system_metrics()
                     
                     # Get container status for vLLM inference containers only
-                    container_status = docker_service.get_inference_container_status()
+                    container_status = docker_service.get_inference_container_status(
+                        known_names=known_container_names
+                    )
                     
                     # Send combined update
                     await websocket.send_text(json.dumps({
@@ -174,7 +177,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
         gpu_service = websocket.app.state.gpu_service
         docker_service = websocket.app.state.docker_service
-        task = await manager.start_monitoring(websocket, gpu_service, docker_service)
+        registry = getattr(websocket.app.state, 'instance_registry', None)
+        known_names = registry.get_all_container_names() if registry else None
+        task = await manager.start_monitoring(websocket, gpu_service, docker_service, known_names)
 
         try:
             while True:

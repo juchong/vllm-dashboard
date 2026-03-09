@@ -3,6 +3,7 @@ import api from '../services/api'
 import ModelConfigEditor from '../components/models/ModelConfigEditor'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import Alert from '../components/common/Alert'
+import { useInstanceContext } from '../contexts/InstanceContext'
 
 interface ConfigEntry {
   model_name: string
@@ -10,6 +11,7 @@ interface ConfigEntry {
 }
 
 const ConfigEditor = () => {
+  const { selectedInstanceId } = useInstanceContext()
   const [configs, setConfigs] = useState<ConfigEntry[]>([])
   const [selectedEntry, setSelectedEntry] = useState<ConfigEntry | null>(null)
   const [config, setConfig] = useState<any>(null)
@@ -19,7 +21,7 @@ const ConfigEditor = () => {
 
   const fetchConfigs = async () => {
     try {
-      const response = await api.get('/config/pairs')
+      const response = await api.get(`/config/${selectedInstanceId}/pairs`)
       setConfigs(response.data.data)
     } catch (err) {
       setError('Failed to fetch configs')
@@ -30,7 +32,7 @@ const ConfigEditor = () => {
   const fetchConfig = async (modelName: string) => {
     setLoading(true)
     try {
-      const response = await api.get(`/config/model/${modelName}`)
+      const response = await api.get(`/config/${selectedInstanceId}/model/${modelName}`)
       const data = response.data.data || {}
       setConfig(data.config || {})
       setConfigPath(data.config_path || null)
@@ -43,14 +45,22 @@ const ConfigEditor = () => {
   }
 
   const handleSaveConfig = async (modelName: string, configData: any) => {
-    await api.post('/config/save', { model_name: modelName, config: configData })
+    await api.post(`/config/${selectedInstanceId}/save`, { model_name: modelName, config: configData })
     await fetchConfig(modelName)
+    await fetchConfigs()
+  }
+
+  const handleRegenerateConfig = async (modelName: string) => {
+    const response = await api.post(`/config/${selectedInstanceId}/regenerate`, { model_name: modelName })
+    const data = response.data.data || {}
+    setConfig(data.config || {})
+    setConfigPath(data.config_path || null)
     await fetchConfigs()
   }
 
   useEffect(() => {
     fetchConfigs()
-  }, [])
+  }, [selectedInstanceId])
 
   return (
     <div className="space-y-6">
@@ -93,6 +103,7 @@ const ConfigEditor = () => {
             config={config}
             configPath={configPath}
             onSave={handleSaveConfig}
+            onRegenerate={handleRegenerateConfig}
           />
         </div>
       )}

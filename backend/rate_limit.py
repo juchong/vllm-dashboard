@@ -62,3 +62,8 @@ def enforce_login_limits(request: Request, username: str) -> None:
 def enforce_heavy_api_limits(request: Request, scope: str) -> None:
     ip = extract_client_ip(request)
     rate_limiter.enforce(f"heavy:{scope}:{ip}", limit=30, window_seconds=60)
+
+
+def enforce_read_api_limits(request: Request, scope: str) -> None:
+    ip = extract_client_ip(request)
+    rate_limiter.enforce(f"read:{scope}:{ip}", limit=120, window_seconds=60)

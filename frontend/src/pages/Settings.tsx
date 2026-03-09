@@ -8,6 +8,8 @@
 import { useState, useEffect } from 'react'
 import authService from '../services/auth'
 import Alert from '../components/common/Alert'
+import api from '../services/api'
+import { useInstanceContext } from '../contexts/InstanceContext'
 
 interface UserItem {
     id: number
@@ -25,6 +27,7 @@ const AUTH_BOUNDS = {
 
 const Settings = () => {
     const currentUser = authService.getState().user
+    const { instances, refreshInstances } = useInstanceContext()
     const [authConfig, setAuthConfig] = useState({
         enabled: true,
         max_failed_attempts: 5,
@@ -45,6 +48,25 @@ const Settings = () => {
         newPassword: '',
         confirmPassword: '',
     })
+    const [newInstance, setNewInstance] = useState({
+        id: '',
+        display_name: '',
+        port: 8002,
+        proxy_port: 4002,
+        subdomain: '',
+        gpu_device_ids: '' as string,
+        api_key: '',
+        expose_port: false,
+    })
+    const [editingLabels, setEditingLabels] = useState<{id: string, labels: Array<{key: string, value: string}>} | null>(null)
+    const [editingInstance, setEditingInstance] = useState<{
+        id: string
+        display_name: string
+        subdomain: string
+        gpu_device_ids: string
+        api_key: string
+        expose_port: boolean
+    } | null>(null)
 
     useEffect(() => {
         // Load auth configuration and users
@@ -182,6 +204,127 @@ const Settings = () => {
         }
     }
 
+    const [editingName, setEditingName] = useState<{id: string, name: string} | null>(null)
+
+    const handleCreateInstance = async () => {
+        setError('')
+        if (!newInstance.id || !newInstance.display_name) {
+            setError('Instance ID and display name are required')
+            return
+        }
+        if (!/^[a-zA-Z0-9_-]+$/.test(newInstance.id)) {
+            setError('Instance ID must be alphanumeric, hyphens, or underscores')
+            return
+        }
+        try {
+            const gpuIds = newInstance.gpu_device_ids.trim()
+                ? newInstance.gpu_device_ids.split(',').map(s => s.trim()).filter(Boolean)
+                : null
+            await api.post('/instances', {
+                id: newInstance.id,
+                display_name: newInstance.display_name,
+                port: newInstance.port,
+                proxy_port: newInstance.proxy_port,
+                subdomain: newInstance.subdomain || `vllm-${newInstance.id}`,
+                gpu_device_ids: gpuIds,
+                api_key: newInstance.api_key || null,
+                expose_port: newInstance.expose_port,
+            })
+            setNewInstance({ id: '', display_name: '', port: 8002, proxy_port: 4002, subdomain: '', gpu_device_ids: '', api_key: '', expose_port: false })
+            await refreshInstances()
+            setSuccessMsg('Instance created')
+            setTimeout(() => setSuccessMsg(''), 3000)
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to create instance')
+        }
+    }
+
+    const handleDeleteInstance = async (instanceId: string) => {
+        if (!window.confirm(`Delete instance "${instanceId}"? This will stop and remove its containers.`)) return
+        setError('')
+        try {
+            await api.delete(`/instances/${instanceId}`)
+            await refreshInstances()
+            setSuccessMsg('Instance deleted')
+            setTimeout(() => setSuccessMsg(''), 3000)
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to delete instance')
+        }
+    }
+
+    const handleRenameInstance = async (instanceId: string, displayName: string) => {
+        setError('')
+        try {
+            await api.put(`/instances/${instanceId}`, { display_name: displayName })
+            await refreshInstances()
+            setEditingName(null)
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to rename instance')
+        }
+    }
+
+    const handleOpenLabels = (inst: any) => {
+        const labelsObj = inst.labels || {}
+        const pairs = Object.entries(labelsObj).map(([key, value]) => ({ key, value: String(value) }))
+        if (pairs.length === 0) pairs.push({ key: '', value: '' })
+        setEditingLabels({ id: inst.id, labels: pairs })
+    }
+
+    const handleSaveLabels = async () => {
+        if (!editingLabels) return
+        setError('')
+        try {
+            const labelsObj: Record<string, string> = {}
+            for (const { key, value } of editingLabels.labels) {
+                if (key.trim()) labelsObj[key.trim()] = value
+            }
+            await api.put(`/instances/${editingLabels.id}`, { labels: labelsObj })
+            await refreshInstances()
+            setEditingLabels(null)
+            setSuccessMsg('Labels saved')
+            setTimeout(() => setSuccessMsg(''), 3000)
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to save labels')
+        }
+    }
+
+    const handleOpenEdit = (inst: any) => {
+        setEditingInstance({
+            id: inst.id,
+            display_name: inst.display_name,
+            subdomain: inst.subdomain || '',
+            gpu_device_ids: inst.gpu_device_ids?.join(', ') || '',
+            api_key: '',
+            expose_port: inst.expose_port || false,
+        })
+    }
+
+    const handleSaveEdit = async () => {
+        if (!editingInstance) return
+        setError('')
+        try {
+            const gpuIds = editingInstance.gpu_device_ids.trim()
+                ? editingInstance.gpu_device_ids.split(',').map(s => s.trim()).filter(Boolean)
+                : null
+            const payload: Record<string, any> = {
+                display_name: editingInstance.display_name,
+                subdomain: editingInstance.subdomain,
+                gpu_device_ids: gpuIds,
+                expose_port: editingInstance.expose_port,
+            }
+            if (editingInstance.api_key) {
+                payload.api_key = editingInstance.api_key
+            }
+            await api.put(`/instances/${editingInstance.id}`, payload)
+            await refreshInstances()
+            setEditingInstance(null)
+            setSuccessMsg('Instance updated')
+            setTimeout(() => setSuccessMsg(''), 3000)
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to update instance')
+        }
+    }
+
     if (loading) {
         return (
             <div className="space-y-6">
@@ -242,6 +385,149 @@ const Settings = () => {
                         Change Password
                     </button>
                 </div>
+
+                {/* Instance Management - admin only */}
+                {currentUser?.role === 'admin' && (
+                <div className="dashboard-card">
+                    <h2 className="text-lg font-semibold text-heading mb-4">vLLM Instances</h2>
+                    <p className="text-sm text-dim mb-4">Create and manage vLLM inference instances</p>
+                    
+                    <div className="space-y-4">
+                        <div className="border border-default rounded-lg overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="surface-secondary border-b border-default">
+                                        <th className="text-left px-3 py-2 font-medium text-dim">ID</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">Name</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">vLLM Port</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">Subdomain</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">GPU IDs</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">API Key</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">Port Exposed</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">Status</th>
+                                        <th className="text-left px-3 py-2 font-medium text-dim">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                                    {instances.map((inst) => (
+                                        <tr key={inst.id} className="surface-hover">
+                                            <td className="px-3 py-2 font-mono text-xs text-heading">{inst.id}</td>
+                                            <td className="px-3 py-2 text-body">
+                                                {editingName?.id === inst.id ? (
+                                                    <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); handleRenameInstance(inst.id, editingName.name) }}>
+                                                        <input type="text" className="form-input text-sm py-0.5 px-1 w-28"
+                                                            value={editingName.name}
+                                                            onChange={(e) => setEditingName({ id: inst.id, name: e.target.value })}
+                                                            autoFocus
+                                                            onBlur={() => setEditingName(null)}
+                                                            onKeyDown={(e) => { if (e.key === 'Escape') setEditingName(null) }}
+                                                        />
+                                                    </form>
+                                                ) : (
+                                                    <span className="cursor-pointer hover:underline" onClick={() => setEditingName({ id: inst.id, name: inst.display_name })}>
+                                                        {inst.display_name}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-body font-mono text-xs">{inst.port}</td>
+                                            <td className="px-3 py-2 text-body font-mono text-xs">{inst.subdomain}</td>
+                                            <td className="px-3 py-2 text-body font-mono text-xs">{inst.gpu_device_ids?.join(', ') || 'all'}</td>
+                                            <td className="px-3 py-2 text-body text-xs">
+                                                <span className={inst.has_api_key ? 'text-green-600' : 'text-dim'}>{inst.has_api_key ? 'set' : 'none'}</span>
+                                            </td>
+                                            <td className="px-3 py-2 text-body text-xs">{inst.expose_port ? 'yes' : 'no'}</td>
+                                            <td className="px-3 py-2">
+                                                <span className={inst.vllm_status?.running ? 'status-running' : 'status-stopped'}>
+                                                    {inst.vllm_status?.status || 'unknown'}
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <div className="flex gap-1">
+                                                    {inst.managed_by === 'sdk' && (
+                                                        <button onClick={() => handleOpenEdit(inst)}
+                                                            className="dashboard-button-secondary btn-xs">
+                                                            Edit
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => handleOpenLabels(inst)}
+                                                        className="dashboard-button-secondary btn-xs">
+                                                        Labels
+                                                    </button>
+                                                    {inst.id !== 'default' && (
+                                                        <button onClick={() => handleDeleteInstance(inst.id)}
+                                                            className="dashboard-button-danger btn-xs">
+                                                            Delete
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="border-t border-default pt-4">
+                            <h3 className="text-body font-medium mb-3">Create New Instance</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="form-label mb-1">Instance ID</label>
+                                    <input type="text" className="form-input" placeholder="beta"
+                                        value={newInstance.id}
+                                        onChange={(e) => setNewInstance({...newInstance, id: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">Display Name</label>
+                                    <input type="text" className="form-input" placeholder="Secondary"
+                                        value={newInstance.display_name}
+                                        onChange={(e) => setNewInstance({...newInstance, display_name: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">vLLM Port</label>
+                                    <input type="number" className="form-input"
+                                        value={newInstance.port}
+                                        onChange={(e) => setNewInstance({...newInstance, port: parseInt(e.target.value) || 8002})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">Proxy Port</label>
+                                    <input type="number" className="form-input"
+                                        value={newInstance.proxy_port}
+                                        onChange={(e) => setNewInstance({...newInstance, proxy_port: parseInt(e.target.value) || 4002})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">Subdomain</label>
+                                    <input type="text" className="form-input" placeholder="vllm-beta"
+                                        value={newInstance.subdomain}
+                                        onChange={(e) => setNewInstance({...newInstance, subdomain: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">GPU IDs (comma-sep, empty=all)</label>
+                                    <input type="text" className="form-input" placeholder="0,1"
+                                        value={newInstance.gpu_device_ids}
+                                        onChange={(e) => setNewInstance({...newInstance, gpu_device_ids: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="form-label mb-1">API Key (optional)</label>
+                                    <input type="password" className="form-input" placeholder="leave empty for global key"
+                                        value={newInstance.api_key}
+                                        onChange={(e) => setNewInstance({...newInstance, api_key: e.target.value})} />
+                                </div>
+                                <div className="flex items-end pb-1">
+                                    <label className="flex items-center gap-2 text-sm text-body">
+                                        <input type="checkbox" className="rounded"
+                                            checked={newInstance.expose_port}
+                                            onChange={(e) => setNewInstance({...newInstance, expose_port: e.target.checked})} />
+                                        Expose port to host
+                                    </label>
+                                </div>
+                            </div>
+                            <button className="dashboard-button mt-3" onClick={handleCreateInstance}>
+                                Create Instance
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                )}
 
                 <div className="dashboard-card">
                     <h2 className="text-lg font-semibold text-heading mb-4">Authentication Settings</h2>
@@ -406,6 +692,112 @@ const Settings = () => {
                     </div>
                 </div>
             </div>
+
+            {editingLabels && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="surface-primary rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                        <div className="flex justify-between items-center p-4 border-b border-default">
+                            <h2 className="text-lg font-semibold text-heading">Docker Labels: {editingLabels.id}</h2>
+                            <button onClick={() => setEditingLabels(null)} className="text-dim hover:text-body text-xl">&times;</button>
+                        </div>
+                        <div className="p-4 flex-1 overflow-auto space-y-3">
+                            <p className="text-xs text-dim">Docker labels applied to this instance's container. Use for Traefik routing, metadata, etc.</p>
+                            <div className="space-y-2">
+                                {editingLabels.labels.map((item, idx) => (
+                                    <div key={idx} className="flex items-center gap-2">
+                                        <input
+                                            value={item.key}
+                                            onChange={(e) => {
+                                                const updated = [...editingLabels.labels]
+                                                updated[idx] = { ...updated[idx], key: e.target.value }
+                                                setEditingLabels({ ...editingLabels, labels: updated })
+                                            }}
+                                            className="form-input font-mono text-xs flex-1"
+                                            placeholder="traefik.enable"
+                                        />
+                                        <span className="text-faint">=</span>
+                                        <input
+                                            value={item.value}
+                                            onChange={(e) => {
+                                                const updated = [...editingLabels.labels]
+                                                updated[idx] = { ...updated[idx], value: e.target.value }
+                                                setEditingLabels({ ...editingLabels, labels: updated })
+                                            }}
+                                            className="form-input font-mono text-xs flex-1"
+                                            placeholder="true"
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                const updated = editingLabels.labels.filter((_, i) => i !== idx)
+                                                setEditingLabels({ ...editingLabels, labels: updated.length ? updated : [{ key: '', value: '' }] })
+                                            }}
+                                            className="text-red-500 hover:text-red-700 text-sm px-1"
+                                        >&times;</button>
+                                    </div>
+                                ))}
+                            </div>
+                            <button
+                                onClick={() => setEditingLabels({ ...editingLabels, labels: [...editingLabels.labels, { key: '', value: '' }] })}
+                                className="text-sm text-blue-600 hover:text-blue-800"
+                            >+ Add label</button>
+                        </div>
+                        <div className="flex justify-end gap-2 p-4 border-t border-default">
+                            <button onClick={() => setEditingLabels(null)} className="dashboard-button-secondary btn-sm">Cancel</button>
+                            <button onClick={handleSaveLabels} className="dashboard-button btn-sm">Save Labels</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {editingInstance && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="surface-primary rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                        <div className="flex justify-between items-center p-4 border-b border-default">
+                            <h2 className="text-lg font-semibold text-heading">Edit Instance: {editingInstance.id}</h2>
+                            <button onClick={() => setEditingInstance(null)} className="text-dim hover:text-body text-xl">&times;</button>
+                        </div>
+                        <div className="p-4 flex-1 overflow-auto space-y-4">
+                            <div>
+                                <label className="form-label mb-1">Display Name</label>
+                                <input type="text" className="form-input"
+                                    value={editingInstance.display_name}
+                                    onChange={(e) => setEditingInstance({ ...editingInstance, display_name: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="form-label mb-1">Subdomain</label>
+                                <input type="text" className="form-input"
+                                    value={editingInstance.subdomain}
+                                    onChange={(e) => setEditingInstance({ ...editingInstance, subdomain: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="form-label mb-1">GPU IDs (comma-separated, empty = all)</label>
+                                <input type="text" className="form-input" placeholder="0,1"
+                                    value={editingInstance.gpu_device_ids}
+                                    onChange={(e) => setEditingInstance({ ...editingInstance, gpu_device_ids: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="form-label mb-1">API Key (leave blank to keep current)</label>
+                                <input type="password" className="form-input" placeholder="unchanged"
+                                    value={editingInstance.api_key}
+                                    onChange={(e) => setEditingInstance({ ...editingInstance, api_key: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="flex items-center gap-2 text-sm text-body">
+                                    <input type="checkbox" className="rounded"
+                                        checked={editingInstance.expose_port}
+                                        onChange={(e) => setEditingInstance({ ...editingInstance, expose_port: e.target.checked })} />
+                                    Expose port to host
+                                </label>
+                            </div>
+                            <p className="text-xs text-dim">Changes to GPU IDs, API key, and expose port take effect on next container restart.</p>
+                        </div>
+                        <div className="flex justify-end gap-2 p-4 border-t border-default">
+                            <button onClick={() => setEditingInstance(null)} className="dashboard-button-secondary btn-sm">Cancel</button>
+                            <button onClick={handleSaveEdit} className="dashboard-button btn-sm">Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

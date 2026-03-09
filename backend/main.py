@@ -12,7 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from api import auth, config, containers, models, monitoring, vllm, websockets
+from api import auth, config, containers, instances, models, monitoring, vllm, websockets
 from database import get_db, init_db
 from security import CSRFMiddleware, CooldownGuard, parse_csv_env
 from services.config_service import ConfigService
@@ -20,7 +20,7 @@ from services.docker_service import DockerService
 from services.download_manager import DownloadManager
 from services.gpu_service import GPUService
 from services.hf_service import HuggingFaceService
-from services.vllm_service import VLLMService
+from services.instance_registry import InstanceRegistry
 
 
 def _ensure_initial_admin():
@@ -89,7 +89,11 @@ async def lifespan(app: FastAPI):
     app.state.gpu_service = GPUService()
     app.state.config_service = ConfigService()
     app.state.hf_service.config_service = app.state.config_service
-    app.state.vllm_service = VLLMService(app.state.docker_service, app.state.hf_service)
+    app.state.instance_registry = InstanceRegistry(
+        config_dir=os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs"),
+        docker_service=app.state.docker_service,
+        hf_service=app.state.hf_service,
+    )
     app.state.download_manager = DownloadManager(app.state.hf_service, app.state.config_service)
     app.state.cooldown_guard = CooldownGuard(cooldown_seconds=int(os.environ.get("CONTROL_ACTION_COOLDOWN_SECONDS", "5")))
 
@@ -156,6 +160,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(instances.router, prefix="/api/instances", tags=["instances"])
 app.include_router(containers.router, prefix="/api/containers", tags=["containers"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(monitoring.router, prefix="/api/monitoring", tags=["monitoring"])

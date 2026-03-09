@@ -7,6 +7,7 @@ interface ModelConfigEditorProps {
   configPath: string | null
   detectedModelType?: string
   onSave: (modelName: string, config: any) => void
+  onRegenerate?: (modelName: string) => Promise<void>
 }
 
 const CORE_KEYS = [
@@ -15,7 +16,6 @@ const CORE_KEYS = [
   'max_model_len',
   'tensor_parallel_size',
   'host',
-  'port',
   'download_dir',
   'vllm_image',
   'model_type',
@@ -29,7 +29,6 @@ interface CoreConfig {
   max_model_len: number
   tensor_parallel_size: number
   host: string
-  port: number
   download_dir: string
   vllm_image: string
   model_type: string
@@ -41,7 +40,6 @@ const DEFAULT_CORE: CoreConfig = {
   max_model_len: 8192,
   tensor_parallel_size: 2,
   host: '0.0.0.0',
-  port: 8000,
   download_dir: '/root/.cache/huggingface',
   vllm_image: 'vllm/vllm-openai:latest',
   model_type: 'dense_full',
@@ -110,7 +108,7 @@ function mergeConfig(core: CoreConfig, advanced: Record<string, any>, envVars: A
     const val = core[key]
     if (val !== undefined && val !== '' && val !== DEFAULT_CORE[key]) {
       result[key] = val
-    } else if (key === 'model' || key === 'served_model_name' || key === 'host' || key === 'port') {
+    } else if (key === 'model' || key === 'served_model_name' || key === 'host') {
       result[key] = val || DEFAULT_CORE[key]
     }
   }
@@ -138,6 +136,7 @@ const ModelConfigEditor = ({
   configPath,
   detectedModelType,
   onSave,
+  onRegenerate,
 }: ModelConfigEditorProps) => {
   const [coreConfig, setCoreConfig] = useState<CoreConfig>({ ...DEFAULT_CORE })
   const [advancedYaml, setAdvancedYaml] = useState<string>('')
@@ -288,6 +287,24 @@ const ModelConfigEditor = ({
     setEnvVars(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item))
   }
 
+  const [regenerating, setRegenerating] = useState(false)
+
+  const handleRegenerate = async () => {
+    if (!onRegenerate) return
+    if (!confirm('Regenerate configuration from model metadata?\n\nThis will replace the current config with auto-detected defaults.')) return
+    setRegenerating(true)
+    setSaveResult(null)
+    try {
+      await onRegenerate(modelName)
+      setSaveResult({ type: 'success', text: 'Configuration regenerated from model metadata' })
+      setTimeout(() => setSaveResult(null), 3000)
+    } catch {
+      setSaveResult({ type: 'error', text: 'Failed to regenerate configuration' })
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
   if (config === null) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -369,7 +386,7 @@ const ModelConfigEditor = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div>
               <label className="form-label">Max Model Length</label>
               <input
@@ -399,17 +416,6 @@ const ModelConfigEditor = ({
                 value={coreConfig.host}
                 onChange={(e) => updateCoreField('host', e.target.value)}
                 className="form-input font-mono text-sm"
-              />
-            </div>
-            <div>
-              <label className="form-label">Port</label>
-              <input
-                type="number"
-                value={coreConfig.port}
-                onChange={(e) => updateCoreField('port', parseInt(e.target.value) || 8000)}
-                className="form-input text-sm"
-                min={1}
-                max={65535}
               />
             </div>
           </div>
@@ -604,10 +610,24 @@ const ModelConfigEditor = ({
       )}
 
       <div className="text-xs text-dim space-y-1 pt-2 border-t border-default">
-        <p>Model: <code className="code-inline">{modelName}</code></p>
-        {configPath && (
-          <p>Config: <code className="code-inline">{configPath}</code></p>
-        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <p>Model: <code className="code-inline">{modelName}</code></p>
+            {configPath && (
+              <p>Config: <code className="code-inline">{configPath}</code></p>
+            )}
+          </div>
+          {onRegenerate && (
+            <button
+              onClick={handleRegenerate}
+              disabled={regenerating || saving}
+              className="dashboard-button-secondary btn-sm text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Delete current config and regenerate from model metadata"
+            >
+              {regenerating ? 'Regenerating...' : 'Regenerate Config'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
