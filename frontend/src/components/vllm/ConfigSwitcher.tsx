@@ -162,6 +162,24 @@ const ConfigSwitcher = () => {
     }
   }
 
+  const handleUpdateImage = async () => {
+    if (switching) return
+
+    if (!confirm('Pull latest vLLM image and restart?\n\nThis may take several minutes depending on your connection speed.')) return
+
+    setSwitching(true)
+    setError(null)
+    try {
+      await api.post('/vllm/update-image')
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      await fetchData()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to update image')
+    } finally {
+      setSwitching(false)
+    }
+  }
+
   const handleOpenConfig = async (modelName: string) => {
     try {
       const response = await api.get(`/config/model/${modelName}`)
@@ -291,6 +309,14 @@ const ConfigSwitcher = () => {
                   title="Re-read config YAML, regenerate env vars, and restart"
                 >
                   {switching ? 'Working...' : 'Reload Config'}
+                </button>
+                <button 
+                  onClick={handleUpdateImage}
+                  disabled={switching}
+                  className="dashboard-button btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Pull latest image and restart"
+                >
+                  Update Image
                 </button>
                 <button 
                   onClick={handleRestart}

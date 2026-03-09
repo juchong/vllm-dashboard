@@ -153,6 +153,26 @@ async def start_vllm(request: Request, current_user: User = Depends(require_role
         raise HTTPException(status_code=500, detail="An error occurred")
 
 
+@router.post("/update-image")
+async def update_image(request: Request, current_user: User = Depends(require_role("admin"))):
+    """Pull latest vLLM image and restart container"""
+    enforce_heavy_api_limits(request, "vllm_control")
+    vllm_service = request.app.state.vllm_service
+
+    try:
+        request.state.current_user = current_user
+        request.app.state.cooldown_guard.check(f"{current_user.id}:update_image")
+        result = vllm_service.update_image()
+        audit_event(request, "update_image", "vllm", "success" if result.get("success") else "error")
+        return {"status": "success", "data": result}
+    except ValueError as e:
+        audit_event(request, "update_image", "vllm", "denied", {"error": str(e)})
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        audit_event(request, "update_image", "vllm", "error")
+        raise HTTPException(status_code=500, detail="An error occurred")
+
+
 @router.get("/proxy/status")
 async def get_proxy_status(request: Request, current_user: User = Depends(get_current_user)):
     """Get the status of the vLLM proxy container"""

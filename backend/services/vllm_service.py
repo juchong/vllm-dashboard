@@ -238,7 +238,45 @@ class VLLMService:
     def start_vllm(self) -> Dict[str, Any]:
         """Start the vLLM container. Uses force-recreate to ensure env_file is re-read."""
         return self._restart_vllm_container()
-    
+
+    def update_image(self) -> Dict[str, Any]:
+        """Pull latest vLLM image and restart container."""
+        import subprocess
+
+        env = {**self.docker_service._subprocess_env}
+
+        active_image_path = os.path.join(self.configs_dir, "active.image")
+        if os.path.exists(active_image_path):
+            with open(active_image_path) as f:
+                image = f.read().strip()
+            if image:
+                try:
+                    image = self._validate_vllm_image(image)
+                    env["VLLM_IMAGE"] = image
+                    logger.info(f"Pulling vLLM image: {image}")
+                except ValueError:
+                    pass
+
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-p", "ai", "pull", "vllm"],
+                cwd=self.compose_path,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                env=env,
+            )
+            if result.returncode != 0:
+                return {"success": False, "message": f"Pull failed: {result.stderr}"}
+
+            logger.info("Image pulled, restarting container")
+            return self._restart_vllm_container()
+
+        except subprocess.TimeoutExpired:
+            return {"success": False, "message": "Image pull timed out"}
+        except Exception as e:
+            return {"success": False, "message": f"Update failed: {str(e)}"}
+
     def get_proxy_status(self) -> Dict[str, Any]:
         """Get the status of the vLLM proxy container."""
         try:
