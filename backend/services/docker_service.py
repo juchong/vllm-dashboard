@@ -23,8 +23,10 @@ def _validate_container_name(name: str, allow_dashboard_proxy: bool = False) -> 
     """Reject container names that could target arbitrary containers."""
     if not name or not SAFE_CONTAINER_PATTERN.match(name):
         raise ValueError("Invalid container name")
-    if "vllm" not in name:
-        raise ValueError("Container must be a vLLM container")
+    is_vllm = "vllm" in name
+    is_litellm = name == "litellm" or name == "litellm-db"
+    if not is_vllm and not is_litellm:
+        raise ValueError("Container must be a vLLM or LiteLLM container")
     if not allow_dashboard_proxy and ("dashboard" in name or "proxy" in name):
         raise ValueError("Cannot operate on dashboard or proxy containers")
 
@@ -43,6 +45,7 @@ class InstanceContainerConfig:
     labels: Dict[str, str] = field(default_factory=dict)
     healthcheck: Optional[Dict[str, Any]] = None
     ports: Optional[Dict[str, int]] = None
+    mem_limit: Optional[str] = "96g"
 
 
 class DockerService:
@@ -139,6 +142,7 @@ class DockerService:
             labels=config.labels,
             restart_policy={"Name": "unless-stopped"},
             ports=config.ports or {},
+            mem_limit=config.mem_limit,
         )
         logger.info(f"Created container {config.container_name} (id={container.id[:12]})")
         return container

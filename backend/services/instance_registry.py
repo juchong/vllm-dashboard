@@ -87,7 +87,7 @@ class InstanceRegistry:
             DEFAULT_INSTANCE_ID: {
                 "display_name": "Primary",
                 "container_name": "vllm",
-                "proxy_container_name": "vllm-proxy",
+                "proxy_container_name": "litellm",
                 "port": 8000,
                 "proxy_port": 4000,
                 "subdomain": "vllm",
@@ -156,7 +156,7 @@ class InstanceRegistry:
         except Exception:
             pass
 
-        proxy_svc = services.get("vllm-proxy", {})
+        proxy_svc = services.get("litellm", {})
         raw_labels = proxy_svc.get("labels", [])
         if isinstance(raw_labels, list):
             labels: Dict[str, str] = {}
@@ -263,7 +263,7 @@ class InstanceRegistry:
             self._instances[instance_id] = {
                 "display_name": display_name,
                 "container_name": f"vllm-{instance_id}",
-                "proxy_container_name": f"vllm-proxy-{instance_id}",
+                "proxy_container_name": "litellm",
                 "port": port,
                 "proxy_port": proxy_port,
                 "subdomain": subdomain,

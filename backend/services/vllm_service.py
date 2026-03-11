@@ -51,7 +51,7 @@ class VLLMService:
             self.instance_id = "default"
             self.configs_dir = os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs")
             self.container_name = "vllm"
-            self.proxy_container_name = "vllm-proxy"
+            self.proxy_container_name = "litellm"
             self.port = 8000
             self.managed_by = "compose"
             self.gpu_device_ids = None
@@ -428,7 +428,7 @@ class VLLMService:
         try:
             services = ["vllm"]
             if self.proxy_container_name:
-                services.append("vllm-proxy")
+                services.append(self.proxy_container_name)
             result = subprocess.run(
                 ["docker", "compose", "-p", "ai", "up", "-d", "--force-recreate", "--pull", "missing"] + services,
                 cwd=self.compose_path,

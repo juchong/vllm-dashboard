@@ -84,6 +84,24 @@ services:
           devices:
             - { driver: nvidia, count: all, capabilities: [gpu] }
 
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://litellm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
+      - STORE_MODEL_IN_DB=True
+      - VLLM_API_KEY=${VLLM_API_KEY}
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/config.yaml", "--port", "4000"]
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
   vllm-dashboard-backend:
     build: ./backend
     container_name: vllm-dashboard-backend
