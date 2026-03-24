@@ -3,6 +3,7 @@ vLLM management API endpoints.
 All endpoints are instance-scoped via {instance_id} path parameter.
 """
 
+import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -62,7 +63,7 @@ async def switch_config(instance_id: str, request: Request, body: SwitchConfigRe
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:switch:{instance_id}")
-        result = vllm_service.switch_config(body.config_filename)
+        result = await asyncio.to_thread(vllm_service.switch_config, body.config_filename)
         audit_event(request, "switch_config", body.config_filename, "success", {"instance": instance_id})
         return {"status": "success", "data": result}
     except ValueError as e:
@@ -93,7 +94,7 @@ async def restart_vllm(instance_id: str, request: Request,
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:restart:{instance_id}")
-        result = vllm_service.restart_vllm()
+        result = await asyncio.to_thread(vllm_service.restart_vllm)
         audit_event(request, "restart_vllm", instance_id, "success")
         return {"status": "success", "data": result}
     except ValueError as e:
@@ -112,7 +113,7 @@ async def reload_config(instance_id: str, request: Request,
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:reload:{instance_id}")
-        result = vllm_service.reload_active_config()
+        result = await asyncio.to_thread(vllm_service.reload_active_config)
         audit_event(request, "reload_config", result.get("config_filename", "unknown"), "success", {"instance": instance_id})
         return {"status": "success", "data": result}
     except ValueError as e:
@@ -131,7 +132,7 @@ async def stop_vllm(instance_id: str, request: Request,
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:stop:{instance_id}")
-        result = vllm_service.stop_vllm()
+        result = await asyncio.to_thread(vllm_service.stop_vllm)
         audit_event(request, "stop_vllm", instance_id, "success")
         return {"status": "success", "data": result}
     except Exception:
@@ -147,7 +148,7 @@ async def start_vllm(instance_id: str, request: Request,
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:start:{instance_id}")
-        result = vllm_service.start_vllm()
+        result = await asyncio.to_thread(vllm_service.start_vllm)
         audit_event(request, "start_vllm", instance_id, "success")
         return {"status": "success", "data": result}
     except Exception as e:
@@ -164,7 +165,7 @@ async def update_image(instance_id: str, request: Request,
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:update_image:{instance_id}")
-        result = vllm_service.update_image()
+        result = await asyncio.to_thread(vllm_service.update_image)
         audit_event(request, "update_image", instance_id, "success" if result.get("success") else "error")
         return {"status": "success", "data": result}
     except ValueError as e:

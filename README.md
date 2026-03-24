@@ -356,13 +356,14 @@ frontend/
 | Model download stuck | Check `downloads.json`. Interrupted downloads appear as resumable |
 | Wrong Docker image | Delete `active.image` to reset to compose default |
 | SDK container won't start | Set `VLLM_HOST_MODELS_DIR`, `VLLM_HOST_CONFIG_DIR`, `VLLM_HOST_DATA_DIR` to host paths |
+| Action succeeds but nothing happens | Check the dashboard for error banners—backend errors are now surfaced in the UI |
 | Rate limit on logs | Read endpoints use a 120/min limit; reduce polling frequency if needed |
 
 ## Tech Stack
 
 **Frontend:** React 18 · TypeScript · Tailwind CSS · Vite
 
-**Backend:** Python 3.12 · FastAPI · Docker SDK · pynvml · huggingface-hub
+**Backend:** Python 3.12 · FastAPI · Docker SDK · pynvml · huggingface-hub — Docker operations run in thread pools (`asyncio.to_thread`) to avoid blocking the event loop
 
 ## License
 

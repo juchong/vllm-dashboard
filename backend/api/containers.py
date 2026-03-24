@@ -2,6 +2,7 @@
 Container management API endpoints
 """
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,7 +31,8 @@ async def start_container(action: ContainerAction, request: Request, current_use
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:container-start:{action.container_name}")
-        result = docker_service.start_container(
+        result = await asyncio.to_thread(
+            docker_service.start_container,
             action.container_name,
             profile=action.profile
         )
@@ -51,7 +53,7 @@ async def stop_container(action: ContainerAction, request: Request, current_user
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:container-stop:{action.container_name}")
-        result = docker_service.stop_container(action.container_name)
+        result = await asyncio.to_thread(docker_service.stop_container, action.container_name)
         audit_event(request, "stop_container", action.container_name, "success")
         return {"status": "success", "message": result}
     except ValueError as e:
@@ -69,7 +71,7 @@ async def restart_container(action: ContainerAction, request: Request, current_u
     try:
         request.state.current_user = current_user
         request.app.state.cooldown_guard.check(f"{current_user.id}:container-restart:{action.container_name}")
-        result = docker_service.restart_container(action.container_name)
+        result = await asyncio.to_thread(docker_service.restart_container, action.container_name)
         audit_event(request, "restart_container", action.container_name, "success")
         return {"status": "success", "message": result}
     except ValueError as e:
@@ -84,7 +86,7 @@ async def get_container_status(request: Request, current_user: User = Depends(ge
     docker_service: DockerService = request.app.state.docker_service
     
     try:
-        status = docker_service.get_container_status()
+        status = await asyncio.to_thread(docker_service.get_container_status)
         return {"status": "success", "data": status}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -110,7 +112,7 @@ async def get_container_logs(
             # Streaming response for real-time logs
             return docker_service.stream_container_logs(container_name, tail=tail)
         else:
-            logs = docker_service.get_container_logs(container_name, tail=tail)
+            logs = await asyncio.to_thread(docker_service.get_container_logs, container_name, tail=tail)
             return {"status": "success", "logs": logs}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

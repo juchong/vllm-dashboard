@@ -97,9 +97,15 @@ const ConfigSwitcher = () => {
     if (switching) return
     if (!confirm('Restart vLLM server?')) return
     setSwitching(true)
+    setError(null)
     try {
-      await api.post(`/vllm/${selectedInstanceId}/restart`)
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const res = await api.post(`/vllm/${selectedInstanceId}/restart`)
+      const result = res.data?.data
+      if (result && result.success === false) {
+        setError(result.error || result.message || 'Restart failed')
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to restart')
@@ -141,8 +147,13 @@ const ConfigSwitcher = () => {
   const handleStart = async () => {
     if (switching) return
     setSwitching(true)
+    setError(null)
     try {
-      await api.post(`/vllm/${selectedInstanceId}/start`)
+      const res = await api.post(`/vllm/${selectedInstanceId}/start`)
+      const result = res.data?.data
+      if (result && result.success === false) {
+        setError(result.error || result.message || 'Start failed')
+      }
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start')
@@ -158,8 +169,13 @@ const ConfigSwitcher = () => {
     setBusyAction('update-image')
     setError(null)
     try {
-      await api.post(`/vllm/${selectedInstanceId}/update-image`)
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const res = await api.post(`/vllm/${selectedInstanceId}/update-image`)
+      const result = res.data?.data
+      if (result && result.success === false) {
+        setError(result.error || result.message || 'Failed to update image')
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
       await fetchData()
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update image')
