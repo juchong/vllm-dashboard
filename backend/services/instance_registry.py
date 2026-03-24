@@ -86,10 +86,10 @@ class InstanceRegistry:
         self._instances = {
             DEFAULT_INSTANCE_ID: {
                 "display_name": "Primary",
-                "container_name": "vllm",
-                "proxy_container_name": "litellm",
-                "port": 8000,
-                "proxy_port": 4000,
+                "container_name": os.environ.get("VLLM_DEFAULT_CONTAINER_NAME", "vllm"),
+                "proxy_container_name": os.environ.get("VLLM_DEFAULT_PROXY_CONTAINER", "litellm"),
+                "port": int(os.environ.get("VLLM_DEFAULT_PORT", "8000")),
+                "proxy_port": int(os.environ.get("VLLM_DEFAULT_PROXY_PORT", "4000")),
                 "subdomain": "vllm",
                 "config_dir": ".",
                 "managed_by": "compose",

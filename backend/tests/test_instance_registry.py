@@ -130,7 +130,7 @@ class TestInstanceCRUD:
         )
         assert inst["id"] == "test1"
         assert inst["container_name"] == "vllm-test1"
-        assert inst["proxy_container_name"] == "vllm-proxy-test1"
+        assert inst["proxy_container_name"] == "litellm"
         assert inst["managed_by"] == "sdk"
         assert os.path.isdir(os.path.join(config_dir, "test1"))
 
@@ -252,9 +252,8 @@ class TestGetAllContainerNames:
         registry.create_instance("cn1", "CN1", 8090, 4090, "cn1")
         names = registry.get_all_container_names()
         assert "vllm" in names
-        assert "vllm-proxy" in names
+        assert "litellm" in names
         assert "vllm-cn1" in names
-        assert "vllm-proxy-cn1" in names
 
 
 class TestResourceLocking:

@@ -17,10 +17,10 @@ except Exception:  # pragma: no cover
 class RateLimiter:
     def __init__(self) -> None:
         self.enabled = os.environ.get("RATE_LIMIT_ENABLED", "true").lower() in {"1", "true", "yes"}
-        self.redis_url = os.environ.get("RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = os.environ.get("RATE_LIMIT_REDIS_URL", "")
         self._redis = None
         self._memory: dict[str, deque[float]] = defaultdict(deque)
-        if redis is not None:
+        if redis is not None and self.redis_url:
             try:
                 self._redis = redis.from_url(self.redis_url, decode_responses=True)
                 self._redis.ping()

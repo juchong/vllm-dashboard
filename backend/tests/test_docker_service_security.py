@@ -33,9 +33,9 @@ def test_accepts_valid():
 
 
 def test_rejects_non_vllm():
-    with pytest.raises(ValueError, match="must be a vLLM container"):
+    with pytest.raises(ValueError, match="must be a vLLM or allowed proxy container"):
         _validate_container_name("postgres")
-    with pytest.raises(ValueError, match="must be a vLLM container"):
+    with pytest.raises(ValueError, match="must be a vLLM or allowed proxy container"):
         _validate_container_name("redis")
 
 

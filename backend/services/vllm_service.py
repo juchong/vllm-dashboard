@@ -50,9 +50,9 @@ class VLLMService:
         else:
             self.instance_id = "default"
             self.configs_dir = os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs")
-            self.container_name = "vllm"
-            self.proxy_container_name = "litellm"
-            self.port = 8000
+            self.container_name = os.environ.get("VLLM_DEFAULT_CONTAINER_NAME", "vllm")
+            self.proxy_container_name = os.environ.get("VLLM_DEFAULT_PROXY_CONTAINER", "litellm")
+            self.port = int(os.environ.get("VLLM_DEFAULT_PORT", "8000"))
             self.managed_by = "compose"
             self.gpu_device_ids = None
             self.shared_configs_dir = self.configs_dir
@@ -283,7 +283,7 @@ class VLLMService:
 
             try:
                 result = subprocess.run(
-                    ["docker", "compose", "-p", "ai", "pull", "vllm"],
+                    ["docker", "compose", "-p", os.environ.get("VLLM_COMPOSE_PROJECT", "ai"), "pull", "vllm"],
                     cwd=self.compose_path,
                     capture_output=True,
                     text=True,
@@ -299,7 +299,7 @@ class VLLMService:
             except Exception as e:
                 return {"success": False, "message": f"Update failed: {str(e)}"}
         else:
-            tag = image or "vllm/vllm-openai:nightly"
+            tag = image or os.environ.get("VLLM_DEFAULT_IMAGE", "vllm/vllm-openai:latest")
             try:
                 self.docker_service.pull_image(tag)
                 logger.info(f"[{self.instance_id}] SDK image pulled: {tag}")
@@ -430,7 +430,7 @@ class VLLMService:
             if self.proxy_container_name:
                 services.append(self.proxy_container_name)
             result = subprocess.run(
-                ["docker", "compose", "-p", "ai", "up", "-d", "--force-recreate", "--pull", "missing"] + services,
+                ["docker", "compose", "-p", os.environ.get("VLLM_COMPOSE_PROJECT", "ai"), "up", "-d", "--force-recreate", "--pull", "missing"] + services,
                 cwd=self.compose_path,
                 capture_output=True,
                 text=True,
@@ -465,7 +465,7 @@ class VLLMService:
                     except ValueError:
                         image = None
         if not image:
-            image = "vllm/vllm-openai:nightly"
+            image = os.environ.get("VLLM_DEFAULT_IMAGE", "vllm/vllm-openai:latest")
 
         env = self._build_sdk_env()
         command_str = self._build_sdk_command()
@@ -481,7 +481,7 @@ class VLLMService:
                 volumes=volumes,
                 command=command_str,
                 gpu_device_ids=self.gpu_device_ids,
-                network="traefik",
+                network=os.environ.get("VLLM_DOCKER_NETWORK", "traefik"),
                 port=self.port,
                 labels=self._build_sdk_labels(),
                 ports=port_mapping,
@@ -505,19 +505,22 @@ class VLLMService:
                         k, v = line.split('=', 1)
                         env[k] = v
 
-        env.setdefault("VLLM_API_KEY", os.environ.get("VLLM_API_KEY", "local"))
+        env.setdefault("VLLM_API_KEY", os.environ.get("VLLM_API_KEY", ""))
         env.setdefault("HF_TOKEN", os.environ.get("HF_TOKEN", ""))
         return env
 
     def _build_sdk_command(self) -> str:
-        api_key = self.api_key or os.environ.get("VLLM_API_KEY", "local")
-        return f"--config /root/.cache/vllm/configs/active.yaml --api-key {api_key}"
+        api_key = self.api_key or os.environ.get("VLLM_API_KEY", "")
+        cmd = "--config /root/.cache/vllm/configs/active.yaml"
+        if api_key:
+            cmd += f" --api-key {api_key}"
+        return cmd
 
     def _build_sdk_volumes(self) -> Dict[str, Dict[str, str]]:
         host_models = os.environ.get("VLLM_HOST_MODELS_DIR",
                                      os.environ.get("VLLM_MODELS_DIR", "/models"))
         host_vllm_data = os.environ.get("VLLM_HOST_DATA_DIR",
-                                        os.environ.get("VLLM_DATA_DIR", "/mnt/tiny/docker/data/vllm"))
+                                        os.environ.get("VLLM_DATA_DIR", "/vllm-data"))
         host_config_root = os.environ.get("VLLM_HOST_CONFIG_DIR",
                                           os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs"))
         container_config_root = os.environ.get("VLLM_CONFIG_DIR", "/vllm-configs")

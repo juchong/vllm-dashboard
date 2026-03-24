@@ -114,8 +114,12 @@ try:
     from slowapi.util import get_remote_address
     from limits.storage import storage_from_string
 
-    redis_url = os.environ.get("RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
-    storage_from_string(redis_url)  # Validate backend URL early
+    redis_url = os.environ.get("RATE_LIMIT_REDIS_URL")
+    if not redis_url:
+        import logging as _rlog
+        _rlog.getLogger(__name__).warning("RATE_LIMIT_REDIS_URL not set, skipping Redis-backed rate limiting")
+        raise RuntimeError("no redis url")
+    storage_from_string(redis_url)
     limiter = Limiter(key_func=get_remote_address, storage_uri=redis_url, default_limits=["200/minute"])
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
@@ -147,7 +151,7 @@ if os.environ.get("FORCE_HTTPS_REDIRECT", "false").lower() in {"1", "true", "yes
     app.add_middleware(HTTPSRedirectMiddleware)
 
 # CORS Configuration - restrict origins when using credentials
-_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173,https://vllm-dashboard.chongflix.tv,http://vllm-dashboard.chongflix.tv")
+_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:8080,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:3000,http://127.0.0.1:5173")
 _cors_origins_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,

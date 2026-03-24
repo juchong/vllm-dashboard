@@ -24,9 +24,11 @@ def _validate_container_name(name: str, allow_dashboard_proxy: bool = False) -> 
     if not name or not SAFE_CONTAINER_PATTERN.match(name):
         raise ValueError("Invalid container name")
     is_vllm = "vllm" in name
-    is_litellm = name == "litellm" or name == "litellm-db"
-    if not is_vllm and not is_litellm:
-        raise ValueError("Container must be a vLLM or LiteLLM container")
+    _allowed_extra = os.environ.get("VLLM_ALLOWED_CONTAINERS", "litellm,litellm-db")
+    allowed_extras = {s.strip() for s in _allowed_extra.split(",") if s.strip()}
+    is_allowed_extra = name in allowed_extras
+    if not is_vllm and not is_allowed_extra:
+        raise ValueError("Container must be a vLLM or allowed proxy container")
     if not allow_dashboard_proxy and ("dashboard" in name or "proxy" in name):
         raise ValueError("Cannot operate on dashboard or proxy containers")
 
@@ -40,12 +42,21 @@ class InstanceContainerConfig:
     volumes: Dict[str, Dict[str, str]] = field(default_factory=dict)
     command: str = ""
     gpu_device_ids: Optional[List[str]] = None
-    network: str = "traefik"
+    network: str = ""
     port: int = 8000
     labels: Dict[str, str] = field(default_factory=dict)
     healthcheck: Optional[Dict[str, Any]] = None
     ports: Optional[Dict[str, int]] = None
-    mem_limit: Optional[str] = "96g"
+    mem_limit: Optional[str] = None
+    shm_size: Optional[str] = None
+
+    def __post_init__(self):
+        if not self.network:
+            self.network = os.environ.get("VLLM_DOCKER_NETWORK", "traefik")
+        if self.mem_limit is None:
+            self.mem_limit = os.environ.get("VLLM_CONTAINER_MEM_LIMIT", "96g")
+        if self.shm_size is None:
+            self.shm_size = os.environ.get("VLLM_CONTAINER_SHM_SIZE", "4g")
 
 
 class DockerService:
@@ -67,7 +78,7 @@ class DockerService:
         _validate_container_name(container_name)
         cmd = [
             "docker", "compose",
-            "-p", "ai",
+            "-p", os.environ.get("VLLM_COMPOSE_PROJECT", "ai"),
             "--file", f"{self.compose_path}/compose.yaml"
         ]
         if profile:
@@ -132,7 +143,7 @@ class DockerService:
             name=config.container_name,
             detach=True,
             ipc_mode="host",
-            shm_size="4g",
+            shm_size=config.shm_size,
             environment=config.environment,
             volumes=config.volumes,
             command=config.command,

@@ -140,7 +140,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time monitoring updates. Requires authentication."""
     ws_origins_raw = os.environ.get("WS_ALLOWED_ORIGINS")
     if not ws_origins_raw:
-        ws_origins_raw = os.environ.get("CORS_ORIGINS", "http://localhost:8080,http://localhost:5173")
+        ws_origins_raw = os.environ.get("CORS_ORIGINS", "http://localhost:8080,http://localhost:3000,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:3000,http://127.0.0.1:5173")
     allowed_origins = {
         origin.strip()
         for origin in ws_origins_raw.split(",")

@@ -160,6 +160,9 @@ class ConfigService:
 
         short_name = model_name.split('/')[-1] if '/' in model_name else model_name
 
+        gpu_count = int(os.environ.get("VLLM_DEFAULT_GPU_COUNT", "1"))
+        gpu_ids = os.environ.get("VLLM_DEFAULT_GPU_IDS", ",".join(str(i) for i in range(gpu_count)))
+
         config: Dict[str, Any] = {
             "model": model_name,
             "model_type": model_type,
@@ -167,7 +170,7 @@ class ConfigService:
             "host": "0.0.0.0",
             "download_dir": "/root/.cache/huggingface",
             "dtype": "auto" if is_quantized else "bfloat16",
-            "tensor_parallel_size": 2,
+            "tensor_parallel_size": gpu_count,
             "gpu_memory_utilization": 0.90,
             "max_num_seqs": 16,
             "max_num_batched_tokens": 16384,
@@ -179,7 +182,7 @@ class ConfigService:
 
         env_vars: Dict[str, str] = {
             "SAFETENSORS_FAST_GPU": "1",
-            "CUDA_VISIBLE_DEVICES": "0,1",
+            "CUDA_VISIBLE_DEVICES": gpu_ids,
         }
 
         if is_moe:
