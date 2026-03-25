@@ -9,12 +9,14 @@ Web dashboard for managing [vLLM](https://github.com/vllm-project/vllm) inferenc
 - **Config management** — YAML configs with CLI import, per-model environment overrides
 - **Model downloads** — background downloads with progress, resume, and auto-config generation
 - **GPU monitoring** — real-time temperature, VRAM, power, utilization via WebSocket
+- **GPU power management** — persistent per-GPU power limits with admin-only slider controls
+- **LiteLLM model sync** — automatically register/deregister models in LiteLLM on switch/start/stop
 - **Per-instance API keys** — set API keys per instance for security
 - **Docker labels** — attach arbitrary labels (Traefik routing, etc.) to SDK-managed containers
 - **Port exposure control** — toggle host port mapping per instance
 - **User management** — role-based access (viewer, operator, admin) with password change
 - **Config regeneration** — regenerate model configs from HuggingFace metadata on demand
-- **Dark mode** — system preference detection
+- **Dark mode** — system preference detection with toggle on login and main UI
 
 ## Screenshots
 
@@ -82,6 +84,8 @@ services:
     build: ./backend
     container_name: vllm-dashboard-backend
     restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
     environment:
       - VLLM_MODELS_DIR=/models
       - VLLM_CONFIG_DIR=/vllm-configs
@@ -164,6 +168,13 @@ services:
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Trusted host header values |
 | `RATE_LIMIT_REDIS_URL` | *(empty)* | Redis URL for rate limiting. Falls back to in-memory if unset. |
 | `VLLM_ALLOWED_IMAGE_PREFIXES` | `vllm/,ghcr.io/` | Allowed Docker image prefixes for vLLM containers |
+
+**LiteLLM integration (optional):**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LITELLM_API_BASE` | *(empty)* | LiteLLM management API URL (e.g. `http://litellm:4000`). Enables auto-sync. |
+| `LITELLM_MASTER_KEY` | *(empty)* | LiteLLM master key for model management API calls |
 
 ### Environment Variables (Frontend)
 
@@ -284,6 +295,28 @@ When you click **Activate**:
 
 **Model Deletion** removes the model directory, associated config YAMLs, and HuggingFace cache entries.
 
+### GPU Power Management
+
+Admin users can set per-GPU power limits via a slider on the Dashboard and Monitoring pages. Limits are:
+
+- Applied via NVML (`nvmlDeviceSetPowerManagementLimit`)
+- Persisted in `configs/gpu_power_limits.json` keyed by GPU index
+- Reapplied automatically on dashboard backend startup
+- Validated against hardware min/max constraints
+
+The backend container requires `cap_add: [SYS_ADMIN]` for NVML power management.
+
+### LiteLLM Model Sync
+
+When `LITELLM_API_BASE` and `LITELLM_MASTER_KEY` are set, the dashboard automatically manages model entries in LiteLLM:
+
+- **Switch/Start** — registers the active model in LiteLLM with `hosted_vllm/` prefix
+- **Stop** — removes the model entry from LiteLLM
+- **Delete instance** — cleans up associated LiteLLM entries
+- **Startup** — syncs all active instances and removes orphaned entries
+
+Models are tagged with `managed_by: vllm-dashboard` and `vllm_instance_id` for identification. Open WebUI (or any LiteLLM client) sees model changes immediately via `/v1/models`.
+
 ## API
 
 <details>
@@ -338,6 +371,16 @@ When you click **Activate**:
 | GET | `/api/auth/users` | List users (admin) |
 | POST | `/api/auth/users` | Create user (admin) |
 
+**Monitoring**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/monitoring/gpu` | GPU metrics |
+| GET | `/api/monitoring/gpu/power` | GPU power constraints (min/max/default/current) |
+| POST | `/api/monitoring/gpu/{index}/power` | Set GPU power limit (admin) |
+| GET | `/api/monitoring/system` | System metrics |
+| GET | `/api/monitoring/container` | Container resource usage |
+
 **WebSocket:** `/ws/updates` — GPU metrics, system stats, container status (2s interval).
 
 </details>
@@ -349,7 +392,7 @@ backend/
   api/           Route handlers (instances, vllm, config, models, auth, containers)
   services/      VLLMService, ConfigService, HuggingFaceService,
                  DockerService, GPUService, DownloadManager, AuthService,
-                 InstanceRegistry
+                 InstanceRegistry, LiteLLMService
   main.py        FastAPI app
 frontend/
   src/components/  React components (ConfigSwitcher, InstanceSelector, etc.)
@@ -366,6 +409,8 @@ frontend/
 | Config switch succeeds but vLLM doesn't restart | Host paths must be accessible inside backend container |
 | Env changes not applied | Docker reads `env_file` at creation. Use dashboard actions (not `docker restart`) |
 | GPU metrics not showing | Backend needs GPU access for pynvml |
+| GPU power limit fails | Backend container needs `cap_add: [SYS_ADMIN]` |
+| Models not syncing to LiteLLM | Set `LITELLM_API_BASE` and `LITELLM_MASTER_KEY` env vars; check backend logs |
 | Model download stuck | Check `downloads.json`. Interrupted downloads appear as resumable |
 | Wrong Docker image | Delete `active.image` to reset to compose default |
 | SDK container won't start | Set `VLLM_HOST_MODELS_DIR`, `VLLM_HOST_CONFIG_DIR`, `VLLM_HOST_DATA_DIR` to host paths |
