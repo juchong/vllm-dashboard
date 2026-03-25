@@ -21,6 +21,7 @@ from services.download_manager import DownloadManager
 from services.gpu_service import GPUService
 from services.hf_service import HuggingFaceService
 from services.instance_registry import InstanceRegistry
+from services.litellm_service import LiteLLMService
 
 
 def _ensure_initial_admin():
@@ -96,6 +97,20 @@ async def lifespan(app: FastAPI):
     )
     app.state.download_manager = DownloadManager(app.state.hf_service, app.state.config_service)
     app.state.cooldown_guard = CooldownGuard(cooldown_seconds=int(os.environ.get("CONTROL_ACTION_COOLDOWN_SECONDS", "5")))
+
+    litellm_base = os.environ.get("LITELLM_API_BASE", "")
+    litellm_key = os.environ.get("LITELLM_MASTER_KEY", "")
+    if litellm_base and litellm_key:
+        import logging as _ll_log
+        _ll_logger = _ll_log.getLogger("litellm_sync")
+        app.state.litellm_service = LiteLLMService(litellm_base, litellm_key)
+        _ll_logger.info("LiteLLM sync enabled (%s)", litellm_base)
+        try:
+            await app.state.litellm_service.sync_all_instances(app.state.instance_registry)
+        except Exception:
+            _ll_logger.exception("LiteLLM startup sync failed (will retry on next action)")
+    else:
+        app.state.litellm_service = None
 
     yield
 

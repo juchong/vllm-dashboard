@@ -86,6 +86,12 @@ class HuggingFaceService:
             # Also catch params.json used by some models
             "params.json",
         ]
+
+        # Files that indicate a model directory but not compatible with vLLM
+        self.unsupported_indicators = [
+            ".gguf",
+            ".ggml",
+        ]
     
     def get_model_revisions(self, model_name: str) -> Dict[str, Any]:
         """Get available revisions (branches and tags) for a model"""
@@ -123,11 +129,23 @@ class HuggingFaceService:
         """Check if a directory contains a valid HuggingFace model"""
         try:
             for item in os.scandir(path):
-                # Follow symlinks when checking if file exists
                 if item.is_file(follow_symlinks=True):
                     name = item.name.lower()
                     for indicator in self.model_indicators:
                         if indicator in name:
+                            return True
+            return False
+        except Exception:
+            return False
+
+    def _is_unsupported_model_dir(self, path: str) -> bool:
+        """Check if a directory contains model files in unsupported formats (e.g. GGUF)"""
+        try:
+            for item in os.scandir(path):
+                if item.is_file(follow_symlinks=True):
+                    name = item.name.lower()
+                    for indicator in self.unsupported_indicators:
+                        if name.endswith(indicator):
                             return True
             return False
         except Exception:
@@ -154,7 +172,8 @@ class HuggingFaceService:
             models = list(model_map.values())
             
             # Filter out very small entries (likely just metadata, < 100MB)
-            models = [m for m in models if m["size"] > 100 * 1024 * 1024]  # > 100MB
+            # but keep unsupported models regardless of size
+            models = [m for m in models if m["size"] > 100 * 1024 * 1024 or not m.get("is_valid", True)]
             
             # Sort by name
             models.sort(key=lambda x: x["name"].lower())
@@ -222,6 +241,17 @@ class HuggingFaceService:
                         "size": size,
                         "size_human": format_size(size),
                         "is_valid": True
+                    })
+                elif self._is_unsupported_model_dir(model_path):
+                    size = self._get_directory_size(model_path)
+                    rel_path = os.path.relpath(model_path, self.models_dir)
+                    
+                    models.append({
+                        "name": rel_path,
+                        "path": model_path,
+                        "size": size,
+                        "size_human": format_size(size),
+                        "is_valid": False
                     })
                 elif depth < max_depth:
                     # Not a model, but might contain models (e.g., org folder)

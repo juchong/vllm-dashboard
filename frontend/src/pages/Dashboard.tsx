@@ -6,12 +6,14 @@ import GPUMonitor from '../components/monitoring/GPUMonitor'
 import SystemStats from '../components/monitoring/SystemStats'
 import ConfigSwitcher from '../components/vllm/ConfigSwitcher'
 import LoadingSpinner from '../components/common/LoadingSpinner'
+import authService from '../services/auth'
 
 const Dashboard = () => {
   const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoringContext()
   const { selectedInstance } = useInstanceContext()
   const [showLogs, setShowLogs] = useState(false)
   const [selectedContainer, setSelectedContainer] = useState('')
+  const userRole = authService.getState().user?.role
 
   const handleViewLogs = (containerName: string) => {
     setSelectedContainer(containerName)
@@ -39,7 +41,7 @@ const Dashboard = () => {
       {error && <div className="alert alert-error">Error: {error}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <GPUMonitor metrics={gpuMetrics} />
+        <GPUMonitor metrics={gpuMetrics} userRole={userRole} />
         {systemMetrics && <SystemStats metrics={systemMetrics} />}
       </div>
 

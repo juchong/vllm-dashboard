@@ -3,9 +3,11 @@ import GPUMonitor from '../components/monitoring/GPUMonitor'
 import SystemStats from '../components/monitoring/SystemStats'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import Alert from '../components/common/Alert'
+import authService from '../services/auth'
 
 const Monitoring = () => {
   const { gpuMetrics, systemMetrics, connected, loading, error } = useMonitoringContext()
+  const userRole = authService.getState().user?.role
 
   return (
     <div className="space-y-6">
@@ -20,7 +22,7 @@ const Monitoring = () => {
       {error && <Alert type="error">{error}</Alert>}
 
       {gpuMetrics.length > 0 ? (
-        <GPUMonitor metrics={gpuMetrics} />
+        <GPUMonitor metrics={gpuMetrics} userRole={userRole} />
       ) : !loading && (
         <div className="dashboard-card text-center text-dim">
           No GPU metrics available. The backend may not have GPU access.

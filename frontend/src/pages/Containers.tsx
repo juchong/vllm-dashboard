@@ -18,7 +18,7 @@ const Containers = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-heading">All vLLM Containers</h1>
+        <h1 className="text-2xl font-bold text-heading">Containers</h1>
         <button onClick={fetchContainers} className="dashboard-button">Refresh</button>
       </div>
 

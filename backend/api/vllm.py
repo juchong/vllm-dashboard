@@ -5,6 +5,7 @@ All endpoints are instance-scoped via {instance_id} path parameter.
 
 import asyncio
 import logging
+import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
@@ -13,6 +14,7 @@ from models.auth_models import User
 from rate_limit import enforce_heavy_api_limits
 from security import audit_event, redact_env_content
 from services.instance_registry import InstanceRegistry
+from services.litellm_service import LiteLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,43 @@ def _get_vllm_service(request: Request, instance_id: str):
         return registry.get_vllm_service(instance_id)
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Instance '{instance_id}' not found")
+
+
+async def _litellm_sync_model(request: Request, instance_id: str) -> None:
+    """Sync the active model for an instance to LiteLLM. Non-blocking on failure."""
+    litellm_svc: LiteLLMService | None = getattr(request.app.state, "litellm_service", None)
+    if litellm_svc is None:
+        return
+    try:
+        registry: InstanceRegistry = request.app.state.instance_registry
+        inst = registry.get_instance(instance_id)
+        if inst is None:
+            return
+        svc = registry.get_vllm_service(instance_id)
+        active = svc.get_active_config()
+        if not active:
+            return
+        config = active.get("config", {})
+        served_name = config.get("served_model_name") or config.get("model", "")
+        if not served_name:
+            return
+        api_key = svc.api_key or os.environ.get("VLLM_API_KEY", "")
+        await litellm_svc.sync_instance_model(
+            instance_id, served_name, inst["container_name"], inst["port"], api_key,
+        )
+    except Exception:
+        logger.exception("[litellm-sync] Post-action sync failed for instance %s", instance_id)
+
+
+async def _litellm_remove_model(request: Request, instance_id: str) -> None:
+    """Remove the LiteLLM model entry for an instance. Non-blocking on failure."""
+    litellm_svc: LiteLLMService | None = getattr(request.app.state, "litellm_service", None)
+    if litellm_svc is None:
+        return
+    try:
+        await litellm_svc.remove_instance_models(instance_id)
+    except Exception:
+        logger.exception("[litellm-sync] Post-action remove failed for instance %s", instance_id)
 
 
 class SwitchConfigRequest(BaseModel):
@@ -65,6 +104,7 @@ async def switch_config(instance_id: str, request: Request, body: SwitchConfigRe
         request.app.state.cooldown_guard.check(f"{current_user.id}:switch:{instance_id}")
         result = await asyncio.to_thread(vllm_service.switch_config, body.config_filename)
         audit_event(request, "switch_config", body.config_filename, "success", {"instance": instance_id})
+        await _litellm_sync_model(request, instance_id)
         return {"status": "success", "data": result}
     except ValueError as e:
         audit_event(request, "switch_config", body.config_filename, "denied", {"error": str(e), "instance": instance_id})
@@ -134,6 +174,7 @@ async def stop_vllm(instance_id: str, request: Request,
         request.app.state.cooldown_guard.check(f"{current_user.id}:stop:{instance_id}")
         result = await asyncio.to_thread(vllm_service.stop_vllm)
         audit_event(request, "stop_vllm", instance_id, "success")
+        await _litellm_remove_model(request, instance_id)
         return {"status": "success", "data": result}
     except Exception:
         raise HTTPException(status_code=500, detail="An error occurred")
@@ -150,6 +191,7 @@ async def start_vllm(instance_id: str, request: Request,
         request.app.state.cooldown_guard.check(f"{current_user.id}:start:{instance_id}")
         result = await asyncio.to_thread(vllm_service.start_vllm)
         audit_event(request, "start_vllm", instance_id, "success")
+        await _litellm_sync_model(request, instance_id)
         return {"status": "success", "data": result}
     except Exception as e:
         logger.exception(f"[{instance_id}] start_vllm failed")

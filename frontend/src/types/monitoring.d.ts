@@ -11,6 +11,9 @@ export interface GPUMetric {
   power: {
     usage: number
     limit: number
+    default_limit: number
+    min_limit: number
+    max_limit: number
   }
   utilization: {
     gpu: number

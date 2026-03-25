@@ -12,6 +12,7 @@ from deps import get_current_user, require_role
 from models.auth_models import User
 from security import audit_event
 from services.instance_registry import InstanceRegistry
+from services.litellm_service import LiteLLMService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -139,6 +140,12 @@ async def delete_instance(
         request.state.current_user = current_user
         registry.delete_instance(instance_id)
         audit_event(request, "delete_instance", instance_id, "success")
+        litellm_svc: LiteLLMService | None = getattr(request.app.state, "litellm_service", None)
+        if litellm_svc is not None:
+            try:
+                await litellm_svc.remove_instance_models(instance_id)
+            except Exception:
+                logger.exception("Failed to clean up LiteLLM models for deleted instance %s", instance_id)
         return {"status": "success", "message": f"Instance '{instance_id}' deleted"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -55,6 +55,9 @@ const ModelCard = ({ model, isDownloading, onDelete, onRename, onViewConfig }: M
               </h3>
               <div className="flex items-center gap-3 mt-2 text-sm text-dim">
                 <span className="badge badge-gray">{model.size_human}</span>
+                {model.is_valid === false && (
+                  <span className="badge badge-amber" title="Format not supported by vLLM (e.g. GGUF)">Unsupported</span>
+                )}
                 {isDownloading && (
                   <span className="badge badge-blue gap-1.5">
                     <span className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></span>
@@ -69,12 +72,14 @@ const ModelCard = ({ model, isDownloading, onDelete, onRename, onViewConfig }: M
         {/* Actions - only show if not downloading */}
         {!isEditing && !isDownloading && (
           <div className="flex flex-col gap-1.5 shrink-0">
-            <button 
-              onClick={onViewConfig} 
-              className="dashboard-button btn-xs whitespace-nowrap"
-            >
-              Config
-            </button>
+            {model.is_valid !== false && (
+              <button 
+                onClick={onViewConfig} 
+                className="dashboard-button btn-xs whitespace-nowrap"
+              >
+                Config
+              </button>
+            )}
             <button 
               onClick={() => setIsEditing(true)} 
               className="dashboard-button-secondary btn-xs whitespace-nowrap"
